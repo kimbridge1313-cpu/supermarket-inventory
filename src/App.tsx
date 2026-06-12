@@ -1194,6 +1194,11 @@ function LabelPrinter({
   const defaultPrinter = printerDevices.find((device) => device.isDefault) ?? printerDevices[0] ?? null;
   const [printing, setPrinting] = useState(false);
   const [printNotice, setPrintNotice] = useState("");
+  const missingPrintConfig = !defaultPrinter
+    ? "尚未設定預設列印設備"
+    : !defaultPrinter.deviceId
+      ? "預設列印設備尚未填寫打印機 SN"
+      : "";
   const priceClassMap: Record<LabelTemplate["priceSize"], string> = { sm: "text-[56px]", md: "text-[72px]", lg: "text-[92px]" };
 
   return (
@@ -1220,13 +1225,18 @@ function LabelPrinter({
               尚未設定預設列印設備
             </div>
           )}
+          {missingPrintConfig ? (
+            <div className="rounded-xl border px-3 py-2 text-sm text-red-600">
+              {missingPrintConfig}
+            </div>
+          ) : null}
           {printNotice ? <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">{printNotice}</div> : null}
           <Button
             className="w-full gap-2 rounded-xl"
-            disabled={!defaultPrinter || printing}
+            disabled={Boolean(missingPrintConfig) || printing}
             onClick={async () => {
               setPrinting(true);
-              setPrintNotice("");
+              setPrintNotice("正在送出列印...");
               try {
                 const result = await onPrintLabel({
                   product: selected,
@@ -1999,12 +2009,23 @@ export default function SupermarketInventoryFrontendPrototype() {
       }),
     });
 
-    if (!response.ok) {
-      return { ok: false, message: `列印請求失敗：${response.status}` };
+    const rawText = await response.text();
+    let result: PrintJobResult | null = null;
+
+    try {
+      result = rawText ? (JSON.parse(rawText) as PrintJobResult) : null;
+    } catch (error) {
+      console.error("parse print response failed", error, rawText);
     }
 
-    const result = (await response.json()) as PrintJobResult;
-    return result;
+    if (!response.ok) {
+      return {
+        ok: false,
+        message: result?.message || rawText || `列印請求失敗：${response.status}`,
+      };
+    }
+
+    return result ?? { ok: false, message: "列印服務沒有
   };
 
   if (authLoading) {
