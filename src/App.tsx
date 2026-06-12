@@ -1435,7 +1435,7 @@ function InboundWorkbench({ products }: { products: Product[] }) {
 
   return (
     <div className="w-full min-w-0 pb-20 lg:pb-0">
-      <div className="grid w-full gap-5 xl:grid-cols-[280px_minmax(720px,1fr)] 2xl:grid-cols-[280px_minmax(860px,1fr)]">
+      <div className="grid w-full gap-5 xl:grid-cols-[340px_minmax(520px,0.92fr)]">
         <Card className="rounded-2xl shadow-sm">
           <CardHeader>
             <CardTitle>進貨作業</CardTitle>
@@ -3088,7 +3088,7 @@ export default function SupermarketInventoryFrontendPrototype() {
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-900">
-      <div className="mx-auto grid min-h-screen w-full max-w-[1680px] lg:grid-cols-[240px_1fr]">
+      <div className="mx-auto grid min-h-screen max-w-7xl lg:grid-cols-[260px_1fr]">
         <aside className="hidden border-r bg-white p-4 lg:block lg:p-5">
           <div className="mb-6 space-y-1">
             <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
@@ -3135,7 +3135,7 @@ export default function SupermarketInventoryFrontendPrototype() {
           </div>
         </aside>
 
-        <main className="overflow-x-hidden p-4 lg:p-6 xl:pr-8">
+        <main className="overflow-x-hidden p-4 lg:p-6">
           <div className="mb-4 space-y-1 lg:hidden">
             <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
               {normalizeStoreName(storeName)}
