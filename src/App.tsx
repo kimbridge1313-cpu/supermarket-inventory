@@ -1306,8 +1306,8 @@ function ProductMaster({
     ]);
     const csv = [headers, ...rows]
       .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
-      .join("\\n");
-    const blob = new Blob(["\\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+      .join("\n");
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -1322,7 +1322,9 @@ function ProductMaster({
     reader.onload = async () => {
       const text = String(reader.result ?? "").trim();
       if (!text) return;
-      const  if (lintext.replace(/^\\ufeff/, "").split(/\\r?\\n/) parseCell = (cell: string) =>
+      const lines = text.replace(/^\ufeff/, "").split(/\r?\n/).filter(Boolean);
+      if (lines.length <= 1) return;
+      const parseCell = (cell: string) =>
         cell.replace(/^"|"$/g, "").replace(/""/g, '"').trim();
       const rows = lines.slice(1).map((line) => {
         const parts = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(parseCell);
@@ -1330,7 +1332,9 @@ function ProductMaster({
           barcode: parts[0] || "",
           name: parts[1] || "",
           category: parts[2] || "",
-          supplier: parts[3] || suppliers.find((supplier) => supplier.active)?.name || "",
+          supplier:
+            parts[3] ||
+            (suppliers.find((supplier) => supplier.active)?.name ?? ""),
           cost: Number(parts[4] || 0),
           price: Number(parts[5] || 0),
           untaxed: Number(parts[6] || 0),
