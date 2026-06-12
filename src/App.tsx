@@ -781,7 +781,11 @@ function BatchTable({
                 <CompactBatchNumberInput
                   value={line.qty}
                   readOnly={!editable}
-                  onChange={editable && onQtyChange ? (value) => onQtyChange(index, value) : undefined}
+                  onChange={
+                    editable && onQtyChange
+                      ? (value) => onQtyChange(index, value)
+                      : undefined
+                  }
                 />
               </div>
               <div className="pl-1 pr-3 py-2.5">
@@ -789,11 +793,15 @@ function BatchTable({
                   value={line.price}
                   readOnly={!editable}
                   onChange={
-                    editable && onPriceChange ? (value) => onPriceChange(index, value) : undefined
+                    editable && onPriceChange
+                      ? (value) => onPriceChange(index, value)
+                      : undefined
                   }
                 />
               </div>
-              <div className="pl-5 pr-1 py-2.5 font-medium whitespace-nowrap">NT$ {line.amount}</div>
+              <div className="pl-5 pr-1 py-2.5 font-medium whitespace-nowrap">
+                NT$ {line.amount}
+              </div>
               <div className="flex justify-center px-0 py-2.5">
                 <Button
                   variant="outline"
@@ -1471,17 +1479,23 @@ function InboundWorkbench({ products }: { products: Product[] }) {
             ) : null}
 
             <div className="grid grid-cols-3 gap-2 text-sm">
-              <div className="rounded-2xl border-2 p-4">
-                <div className="text-muted-foreground">本批商品數</div>
-                <div className="text-2xl font-semibold">{items.length}</div>
+              <div className="rounded-2xl border-2 p-3.5">
+                <div className="text-[12px] leading-5 text-muted-foreground">本批商品數</div>
+                <div className="mt-1 text-[16px] font-semibold leading-none">
+                  {items.length}
+                </div>
               </div>
-              <div className="rounded-2xl border-2 p-4">
-                <div className="text-muted-foreground">本批總件數</div>
-                <div className="text-2xl font-semibold">{totalQty}</div>
+              <div className="rounded-2xl border-2 p-3.5">
+                <div className="text-[12px] leading-5 text-muted-foreground">本批總件數</div>
+                <div className="mt-1 text-[16px] font-semibold leading-none">
+                  {totalQty}
+                </div>
               </div>
-              <div className="rounded-2xl border-2 p-4">
-                <div className="text-muted-foreground">本批總金額</div>
-                <div className="text-2xl font-semibold">NT$ {total}</div>
+              <div className="rounded-2xl border-2 p-3.5">
+                <div className="text-[12px] leading-5 text-muted-foreground">本批總金額</div>
+                <div className="mt-1 text-[16px] font-semibold leading-none">
+                  NT$ {total}
+                </div>
               </div>
             </div>
 
