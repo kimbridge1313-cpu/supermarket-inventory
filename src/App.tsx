@@ -1378,11 +1378,14 @@ function InboundQtyModal({
 }
 
 function InboundWorkbench({ products }: { products: Product[] }) {
-  const [scanInput, setScanInput] = useState<string>(products[0].barcode);
-  const [items, setItems] = useState<FlowItem[]>([
-    buildFlowItem(products[0], 3),
-    buildFlowItem(products[2], -2),
-  ]);
+  const [scanInput, setScanInput] = useState<string>(products[0]?.barcode ?? "");
+  const [items, setItems] = useState<FlowItem[]>(
+    products.length >= 3
+      ? [buildFlowItem(products[0], 3), buildFlowItem(products[2], -2)]
+      : products.length >= 1
+        ? [buildFlowItem(products[0], 1)]
+        : []
+  );
   const [scanNotice, setScanNotice] = useState<string>("");
   const [scanCandidate, setScanCandidate] = useState<Product | null>(null);
   const [qtyDraft, setQtyDraft] = useState<number>(1);
@@ -1550,7 +1553,7 @@ function InboundWorkbench({ products }: { products: Product[] }) {
 }
 
 function StockQuery({ products }: { products: Product[] }) {
-  const [selected, setSelected] = useState<Product>(products[1]);
+  const [selected, setSelected] = useState<Product>(products[1] ?? products[0]);
 
   return (
     <div className="grid gap-4 pb-20 lg:grid-cols-[0.9fr_1.1fr] lg:pb-0">
@@ -3090,6 +3093,37 @@ export default function SupermarketInventoryFrontendPrototype() {
   const [batchRecords, setBatchRecords] = useState<BatchRecord[]>(initialBatchRecords);
   const [labelTemplates, setLabelTemplates] = useState<LabelTemplate[]>(initialLabelTemplates);
   const [printerDevices, setPrinterDevices] = useState<PrinterDevice[]>(initialPrinterDevices);
+
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        const snapshot = await getDocs(collection(db, "products"));
+        const remoteProducts = snapshot.docs.map((doc) => {
+          const data = doc.data();
+
+          return {
+            barcode: String(data.barcode ?? ""),
+            name: String(data.name ?? ""),
+            category: String(data.category ?? ""),
+            supplier: String(data.supplier ?? ""),
+            cost: Number(data.cost ?? 0),
+            price: Number(data.price ?? 0),
+            untaxed: Number(data.untaxed ?? 0),
+            stock: Number(data.stock ?? 0),
+            history: Array.isArray(data.history) ? data.history : [],
+          } as Product;
+        });
+
+        if (remoteProducts.length > 0) {
+          setProducts(remoteProducts);
+        }
+      } catch (error) {
+        console.error("load products failed", error);
+      }
+    };
+
+    loadProducts();
+  }, []);
 
   const lowStockCount = getLowStockCount(products, 10);
   const supplierCount = getActiveSupplierCount(suppliers);
