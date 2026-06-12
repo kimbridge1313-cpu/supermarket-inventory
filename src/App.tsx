@@ -1987,45 +1987,53 @@ export default function SupermarketInventoryFrontendPrototype() {
     if (!printer?.deviceId) {
       return { ok: false, message: "尚未設定列印機 SN" };
     }
+
     if (!settings.feieUser || !settings.feieUkey) {
       return { ok: false, message: "請先在系統設定填入飛鵝 user / UKEY" };
     }
 
-    const response = await fetch("/api/feie/print-receipt", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        user: settings.feieUser,
-        ukey: settings.feieUkey,
-        sn: printer.deviceId,
-        times: 1,
-        content: buildFeieReceiptContent({
-          storeName: settings.storeName,
-          product,
-          template,
-        }),
-      }),
-    });
-
-    const rawText = await response.text();
-    let result: PrintJobResult | null = null;
-
     try {
-      result = rawText ? (JSON.parse(rawText) as PrintJobResult) : null;
+      const response = await fetch("/api/feie/print-receipt", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user: settings.feieUser,
+          ukey: settings.feieUkey,
+          sn: printer.deviceId,
+          times: 1,
+          content: buildFeieReceiptContent({
+            storeName: settings.storeName,
+            product,
+            template,
+          }),
+        }),
+      });
+
+      const rawText = await response.text();
+      let result: PrintJobResult | null = null;
+
+      if (rawText) {
+        try {
+          result = JSON.parse(rawText) as PrintJobResult;
+        } catch (error) {
+          console.error("parse print response failed", error, rawText);
+        }
+      }
+
+      if (!response.ok) {
+        return {
+          ok: false,
+          message: result?.message ?? rawText ?? `列印請求失敗：${response.status}`,
+        };
+      }
+
+      return result ?? { ok: false, message: "列印服務沒有回傳內容" };
     } catch (error) {
-      console.error("parse print response failed", error, rawText);
+      console.error("send print job failed", error);
+      return { ok: false, message: "列印請求失敗" };
     }
-
-    if (!response.ok) {
-      return {
-        ok: false,
-        message: result?.message || rawText || `列印請求失敗：${response.status}`,
-      };
-    }
-
-    return result ?? { ok: false, message: "列印服務沒有
   };
 
   if (authLoading) {
