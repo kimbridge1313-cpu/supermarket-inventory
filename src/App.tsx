@@ -131,6 +131,12 @@ type SystemSettings = {
   feieUkey: string;
 };
 
+type PrintJobResult = {
+  ok: boolean;
+  orderId?: string;
+  message: string;
+};
+
 type NavKey =
   | "products"
   | "inbound"
@@ -442,6 +448,30 @@ async function parseCsvFile(file: File) {
   if (lines.length <= 1) return [];
   const parseCell = (cell: string) => cell.replace(/^"|"$/g, "").replace(/""/g, '"').trim();
   return lines.slice(1).map((line) => line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(parseCell));
+}
+
+function buildFeieReceiptContent({
+  storeName,
+  product,
+  template,
+}: {
+  storeName: string;
+  product: Product;
+  template: LabelTemplate;
+}) {
+  const lines = [
+    `<CB>${normalizeStoreName(storeName)}</CB>`,
+    "<BR>",
+    `<B>${product.name}</B>`,
+  ];
+
+  if (template.showCategory) lines.push(`<BR>分類：${product.category}`);
+  if (template.showSpec) lines.push("<BR>規格：600ml");
+  lines.push(`<BR>售價：NT$ ${product.price}`);
+  if (template.showBarcode) lines.push(`<BR>${product.barcode}`);
+  lines.push("<BR><CUT>");
+
+  return lines.join("");
 }
 
 function BarcodeGraphic({
@@ -1140,10 +1170,18 @@ function LabelPrinter({
   products,
   storeName,
   templates,
+  printerDevices,
+  onPrintLabel,
 }: {
   products: Product[];
   storeName: string;
   templates: LabelTemplate[];
+  printerDevices: PrinterDevice[];
+  onPrintLabel: (payload: {
+    product: Product;
+    template: LabelTemplate;
+    printer: PrinterDevice | null;
+  }) => Promise<PrintJobResult>;
 }) {
   const [queryText, setQueryText] = useState("");
   const [selected, setSelected] = useState<Product>(products[0] ?? initialProducts[0]);
@@ -1153,6 +1191,9 @@ function LabelPrinter({
     if (!q) return products;
     return products.filter((product) => product.name.includes(q) || product.barcode.includes(q));
   }, [products, queryText]);
+  const defaultPrinter = printerDevices.find((device) => device.isDefault) ?? printerDevices[0] ?? null;
+  const [printing, setPrinting] = useState(false);
+  const [printNotice, setPrintNotice] = useState("");
   const priceClassMap: Record<LabelTemplate["priceSize"], string> = { sm: "text-[56px]", md: "text-[72px]", lg: "text-[92px]" };
 
   return (
@@ -1170,7 +1211,39 @@ function LabelPrinter({
           <motion.div layout>
             <ReceiptLabelPreview storeName={storeName} product={selected} showSpec={activeTemplate?.showSpec ?? false} showCategory={activeTemplate?.showCategory ?? true} showUpdatedDate={activeTemplate?.showUpdatedDate ?? false} priceClassName={priceClassMap[activeTemplate?.priceSize ?? "lg"]} />
           </motion.div>
-          <Button className="w-full gap-2 rounded-xl"><Printer className="h-4 w-4" />送出列印</Button>
+          {defaultPrinter ? (
+            <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
+              列印設備：{defaultPrinter.name}｜{defaultPrinter.model}
+            </div>
+          ) : (
+            <div className="rounded-xl border px-3 py-2 text-sm text-red-600">
+              尚未設定預設列印設備
+            </div>
+          )}
+          {printNotice ? <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">{printNotice}</div> : null}
+          <Button
+            className="w-full gap-2 rounded-xl"
+            disabled={!defaultPrinter || printing}
+            onClick={async () => {
+              setPrinting(true);
+              setPrintNotice("");
+              try {
+                const result = await onPrintLabel({
+                  product: selected,
+                  template: activeTemplate,
+                  printer: defaultPrinter,
+                });
+                setPrintNotice(result.ok ? `已送出列印，訂單號：${result.orderId ?? "-"}` : result.message);
+              } catch (error) {
+                console.error("print label failed", error);
+                setPrintNotice("送出列印失敗");
+              } finally {
+                setPrinting(false);
+              }
+            }}
+          >
+            <Printer className="h-4 w-4" />{printing ? "送出中..." : "送出列印"}
+          </Button>
         </CardContent>
       </Card>
     </div>
@@ -1892,6 +1965,48 @@ export default function SupermarketInventoryFrontendPrototype() {
     await savePrinterDevice(next);
   };
 
+  const sendPrintJob = async ({
+    product,
+    template,
+    printer,
+  }: {
+    product: Product;
+    template: LabelTemplate;
+    printer: PrinterDevice | null;
+  }): Promise<PrintJobResult> => {
+    if (!printer?.deviceId) {
+      return { ok: false, message: "尚未設定列印機 SN" };
+    }
+    if (!settings.feieUser || !settings.feieUkey) {
+      return { ok: false, message: "請先在系統設定填入飛鵝 user / UKEY" };
+    }
+
+    const response = await fetch("/api/feie/print-receipt", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        user: settings.feieUser,
+        ukey: settings.feieUkey,
+        sn: printer.deviceId,
+        times: 1,
+        content: buildFeieReceiptContent({
+          storeName: settings.storeName,
+          product,
+          template,
+        }),
+      }),
+    });
+
+    if (!response.ok) {
+      return { ok: false, message: `列印請求失敗：${response.status}` };
+    }
+
+    const result = (await response.json()) as PrintJobResult;
+    return result;
+  };
+
   if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 text-slate-900">
@@ -1961,7 +2076,15 @@ export default function SupermarketInventoryFrontendPrototype() {
               {active === "products" ? <ProductMaster products={products} suppliers={suppliers} onSaveEdit={saveProductEdit} onCreateProduct={createProduct} onImportProducts={importProducts} /> : null}
               {active === "inbound" ? <InboundWorkbench products={products} onSaveBatch={saveInboundBatch} /> : null}
               {active === "stock" ? <StockQuery products={products} /> : null}
-              {active === "labels" ? <LabelPrinter products={products} storeName={settings.storeName} templates={templates} /> : null}
+              {active === "labels" ? (
+                <LabelPrinter
+                  products={products}
+                  storeName={settings.storeName}
+                  templates={templates}
+                  printerDevices={printerDevices}
+                  onPrintLabel={sendPrintJob}
+                />
+              ) : null}
               {active === "records" ? <RecordQuery batchRecords={batchRecords} products={products} onUpdateBatchRecord={updateBatchRecord} onDeleteBatchRecord={deleteBatchLine} onAddProductToBatch={addProductToBatch} /> : null}
               {active === "settings" ? <SettingsWorkspace suppliers={suppliers} templates={templates} printerDevices={printerDevices} sampleProduct={products[0] ?? initialProducts[0]} settings={settings} onCreateSupplier={createSupplier} onSaveSupplier={saveSupplier} onDeleteSupplier={deleteSupplier} onImportSuppliers={importSuppliers} onSaveSettings={saveSystemSettings} onCreateTemplate={createTemplate} onSaveTemplate={saveTemplate} onDeleteTemplate={deleteTemplate} onSetActiveTemplate={setActiveTemplate} onCreateDevice={createPrinterDevice} onSaveDevice={savePrinterDevice} onDeleteDevice={deletePrinterDevice} onSetDefaultDevice={setDefaultPrinterDevice} onTestDevice={testPrinterDevice} /> : null}
             </motion.div>
@@ -1972,4 +2095,3 @@ export default function SupermarketInventoryFrontendPrototype() {
     </div>
   );
 }
-
