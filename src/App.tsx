@@ -32,7 +32,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { motion } from "framer-motion";
 import Barcode from "react-barcode";
-import { collection, getDocs, query, where, updateDoc } from "firebase/firestore";
+import { collection, doc, getDocs, query, where, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 type HistoryRecord = {
@@ -44,6 +44,7 @@ type HistoryRecord = {
 };
 
 type Product = {
+  docId?: string;
   barcode: string;
   name: string;
   category: string;
@@ -3104,6 +3105,7 @@ export default function SupermarketInventoryFrontendPrototype() {
           const data = doc.data();
 
           return {
+            docId: doc.id,
             barcode: String(data.barcode ?? ""),
             name: String(data.name ?? ""),
             category: String(data.category ?? ""),
@@ -3134,6 +3136,8 @@ export default function SupermarketInventoryFrontendPrototype() {
     originalBarcode: string,
     patch: EditableProductFields
   ) => {
+    const targetProduct = products.find((product) => product.barcode === originalBarcode);
+
     setProducts((prev) =>
       prev.map((product) =>
         product.barcode === originalBarcode ? { ...product, ...patch } : product
@@ -3141,6 +3145,19 @@ export default function SupermarketInventoryFrontendPrototype() {
     );
 
     try {
+      if (targetProduct?.docId) {
+        await updateDoc(doc(collection(db, "products"), targetProduct.docId), {
+          name: patch.name,
+          barcode: patch.barcode,
+          category: patch.category,
+          supplier: patch.supplier,
+          cost: patch.cost,
+          price: patch.price,
+          untaxed: patch.untaxed,
+        });
+        return;
+      }
+
       const productQuery = query(
         collection(db, "products"),
         where("barcode", "==", originalBarcode)
