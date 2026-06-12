@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import crypto from "node:crypto";
 
-const FEIE_URL = "https://api.de.feieyun.com/Api/Open/";
+const FEIE_URL = "https://api.jp.feieyun.com/Api/Open/";
 
 type SuccessPayload = {
   ok: true;
