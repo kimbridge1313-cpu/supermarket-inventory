@@ -1306,9 +1306,8 @@ function ProductMaster({
     ]);
     const csv = [headers, ...rows]
       .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
-      .join("
-");
-    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+      .join("\\n");
+    const blob = new Blob(["\\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -1323,11 +1322,7 @@ function ProductMaster({
     reader.onload = async () => {
       const text = String(reader.result ?? "").trim();
       if (!text) return;
-      const lines = text.replace(/^﻿/, "").split(/
-?
-/).filter(Boolean);
-      if (lines.length <= 1) return;
-      const parseCell = (cell: string) =>
+      const  if (lintext.replace(/^\\ufeff/, "").split(/\\r?\\n/) parseCell = (cell: string) =>
         cell.replace(/^"|"$/g, "").replace(/""/g, '"').trim();
       const rows = lines.slice(1).map((line) => {
         const parts = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(parseCell);
