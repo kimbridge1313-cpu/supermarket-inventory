@@ -43,7 +43,8 @@ import {
   where,
   setDoc,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { GoogleAuthProvider, getAuth, onAuthStateChanged, signInWithPopup, signOut, type User } from "firebase/auth";
+import { app, db } from "@/lib/firebase";
 
 type HistoryRecord = {
   date: string;
@@ -1604,7 +1605,11 @@ function MobileBottomNav({ active, onChange }: { active: NavKey; onChange: (key:
 }
 
 export default function SupermarketInventoryFrontendPrototype() {
+  const auth = getAuth(app);
   const [active, setActive] = useState<NavKey>("inbound");
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers);
   const [batchRecords, setBatchRecords] = useState<BatchRecord[]>(initialBatchRecords);
@@ -1613,6 +1618,17 @@ export default function SupermarketInventoryFrontendPrototype() {
   const [settings, setSettings] = useState<SystemSettings>(initialSystemSettings);
 
   useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [auth]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+
     const loadAll = async () => {
       try {
         const [productSnap, supplierSnap, batchSnap, templateSnap, printerSnap, settingsSnap] = await Promise.all([
@@ -1686,7 +1702,26 @@ export default function SupermarketInventoryFrontendPrototype() {
     };
 
     loadAll();
-  }, []);
+  }, [currentUser]);
+
+  const signInWithGoogle = async () => {
+    try {
+      setAuthError("");
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error("google sign in failed", error);
+      setAuthError("Google 登入失敗，請重新再試一次");
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("sign out failed", error);
+    }
+  };
 
   const lowStockCount = getLowStockCount(products, 10);
   const supplierCount = getActiveSupplierCount(suppliers);
@@ -1857,6 +1892,31 @@ export default function SupermarketInventoryFrontendPrototype() {
     await savePrinterDevice(next);
   };
 
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 text-slate-900">
+        <div className="w-full max-w-md rounded-2xl border bg-white p-6 text-center shadow-sm">
+          <div className="text-lg font-semibold">登入檢查中</div>
+          <div className="mt-2 text-sm text-muted-foreground">正在確認 Firebase Authentication 狀態。</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 text-slate-900">
+        <div className="w-full max-w-md rounded-3xl border bg-white p-6 shadow-sm">
+          <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">嘉義門市</div>
+          <div className="mt-2 text-2xl font-semibold">超市庫存系統</div>
+          <div className="mt-2 text-sm text-muted-foreground">請先使用 Google 帳號登入，通過 Firebase 權限驗證後才能操作系統。</div>
+          <Button className="mt-6 w-full rounded-xl" onClick={signInWithGoogle}>使用 Google 登入</Button>
+          {authError ? <div className="mt-3 rounded-xl border px-3 py-2 text-sm text-red-600">{authError}</div> : null}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-900">
       <div className="mx-auto grid min-h-screen max-w-7xl lg:grid-cols-[260px_1fr]">
@@ -1872,6 +1932,12 @@ export default function SupermarketInventoryFrontendPrototype() {
             <StatCard title="低庫存" value={String(lowStockCount)} note="≤ 10" />
             <StatCard title="批次" value={String(batchRecords.length)} note="批次紀錄" />
           </div>
+          <div className="mb-4 rounded-2xl border p-4 text-sm">
+            <div className="font-medium">登入帳號</div>
+            <div className="mt-2 break-all text-xs text-muted-foreground">{currentUser.email}</div>
+            <Button variant="outline" className="mt-3 w-full rounded-xl" onClick={handleSignOut}>登出</Button>
+          </div>
+
           <nav className="space-y-2">
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -1882,6 +1948,14 @@ export default function SupermarketInventoryFrontendPrototype() {
         </aside>
 
         <main className="overflow-x-hidden p-4 lg:p-6">
+          <div className="mb-4 flex items-center justify-between gap-3 lg:hidden">
+            <div>
+              <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{normalizeStoreName(settings.storeName)}</div>
+              <div className="text-xl font-semibold">超市庫存系統</div>
+            </div>
+            <Button variant="outline" className="rounded-xl" onClick={handleSignOut}>登出</Button>
+          </div>
+
           <div className="pb-24 pr-2 lg:pb-4">
             <motion.div key={active} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }} className="space-y-6">
               {active === "products" ? <ProductMaster products={products} suppliers={suppliers} onSaveEdit={saveProductEdit} onCreateProduct={createProduct} onImportProducts={importProducts} /> : null}
@@ -1898,3 +1972,4 @@ export default function SupermarketInventoryFrontendPrototype() {
     </div>
   );
 }
+
