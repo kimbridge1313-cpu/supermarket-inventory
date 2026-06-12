@@ -1435,7 +1435,7 @@ function InboundWorkbench({ products }: { products: Product[] }) {
 
   return (
     <div className="w-full min-w-0 pb-20 lg:pb-0">
-      <div className="grid w-full gap-5 xl:grid-cols-[340px_minmax(520px,0.92fr)]">
+      <div className="grid w-full gap-5 xl:grid-cols-[380px_minmax(440px,0.82fr)]">
         <Card className="rounded-2xl shadow-sm">
           <CardHeader>
             <CardTitle>進貨作業</CardTitle>
