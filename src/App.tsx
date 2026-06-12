@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ScanLine,
   Package,
@@ -32,7 +32,17 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { motion } from "framer-motion";
 import Barcode from "react-barcode";
-import { addDoc, collection, doc, getDocs, query, where, updateDoc } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  query,
+  updateDoc,
+  where,
+  setDoc,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 type HistoryRecord = {
@@ -114,6 +124,12 @@ type PrinterDevice = {
   status: "已連線" | "未連線";
 };
 
+type SystemSettings = {
+  storeName: string;
+  feieUser: string;
+  feieUkey: string;
+};
+
 type NavKey =
   | "products"
   | "inbound"
@@ -155,8 +171,6 @@ type NewProductFields = {
   untaxed: number;
   stock: number;
 };
-
-type ImportProductFields = NewProductFields;
 
 type EditableProductFields = Pick<
   Product,
@@ -237,15 +251,6 @@ const initialSuppliers: Supplier[] = [
     note: "冷藏豆腐、冷藏食品",
     active: true,
   },
-  {
-    id: "sup-004",
-    code: "V004",
-    name: "聯合食品",
-    contact: "蔡小姐",
-    phone: "0955-000-321",
-    note: "備援供應商",
-    active: false,
-  },
 ];
 
 const initialBatchRecords: BatchRecord[] = [
@@ -271,41 +276,6 @@ const initialBatchRecords: BatchRecord[] = [
         qty: 15,
         price: 27,
         amount: 405,
-        edited: true,
-      },
-    ],
-  },
-  {
-    id: "BATCH-20260608-002",
-    date: "2026-06-08",
-    supplier: "信成冷鏈",
-    itemCount: 1,
-    totalAmount: 380,
-    lines: [
-      {
-        barcode: "4710001122334",
-        product: "義美雞蛋豆腐",
-        supplier: "信成冷鏈",
-        qty: 20,
-        price: 19,
-        amount: 380,
-      },
-    ],
-  },
-  {
-    id: "BATCH-20260604-001",
-    date: "2026-06-04",
-    supplier: "信成冷鏈",
-    itemCount: 1,
-    totalAmount: -57,
-    lines: [
-      {
-        barcode: "4710001122334",
-        product: "義美雞蛋豆腐",
-        supplier: "信成冷鏈",
-        qty: -3,
-        price: 19,
-        amount: -57,
       },
     ],
   },
@@ -322,17 +292,6 @@ const initialLabelTemplates: LabelTemplate[] = [
     showUpdatedDate: false,
     priceSize: "lg",
     active: true,
-  },
-  {
-    id: "tpl-b",
-    name: "模板 B｜資訊擴充版",
-    paperSize: "4 × 6 cm",
-    showCategory: true,
-    showBarcode: true,
-    showSpec: true,
-    showUpdatedDate: true,
-    priceSize: "md",
-    active: false,
   },
 ];
 
@@ -352,22 +311,13 @@ const initialPrinterDevices: PrinterDevice[] = [
     isDefault: true,
     status: "已連線",
   },
-  {
-    id: "printer-002",
-    name: "備用標籤機",
-    brand: "XPrinter",
-    model: "XP-58IINT",
-    usage: "備用",
-    connectionType: "Bluetooth",
-    ipAddress: "",
-    port: "",
-    deviceId: "XP58-BACKUP",
-    paperWidth: "57mm",
-    cutterEnabled: true,
-    isDefault: false,
-    status: "未連線",
-  },
 ];
+
+const initialSystemSettings: SystemSettings = {
+  storeName: "嘉義門市",
+  feieUser: "",
+  feieUkey: "",
+};
 
 const navItems: NavItem[] = [
   { key: "products", label: "商品主檔", shortLabel: "商品", icon: Package },
@@ -398,8 +348,8 @@ function calculateTotalQty(items: { qty: number }[]): number {
   return items.reduce((sum, item) => sum + item.qty, 0);
 }
 
-function findProductByQuery(list: Product[], query: string): Product | null {
-  const normalized = query.trim();
+function findProductByQuery(list: Product[], queryText: string): Product | null {
+  const normalized = queryText.trim();
   if (!normalized) return null;
   return (
     list.find(
@@ -442,18 +392,6 @@ function recalcBatchTotals(record: BatchRecord): BatchRecord {
   };
 }
 
-function normalizeTemplates(templates: LabelTemplate[]): LabelTemplate[] {
-  if (templates.length === 0) return templates;
-  if (templates.some((item) => item.active)) return templates;
-  return templates.map((item, index) => ({ ...item, active: index === 0 }));
-}
-
-function normalizePrinterDevices(devices: PrinterDevice[]): PrinterDevice[] {
-  if (devices.length === 0) return devices;
-  if (devices.some((item) => item.isDefault)) return devices;
-  return devices.map((item, index) => ({ ...item, isDefault: index === 0 }));
-}
-
 function normalizeBarcodeValue(value: string): string {
   const cleaned = value.replace(/\s+/g, "").trim();
   return cleaned || "000000000000";
@@ -481,180 +419,28 @@ function parseBatchInputValue(raw: string, fallback: number): number {
   return Number.isFinite(next) ? next : fallback;
 }
 
-function runPrototypeTests() {
-  return [
-    {
-      name: "calculateAmount multiplies qty and price",
-      pass: calculateAmount(3, 21) === 63,
-    },
-    {
-      name: "calculateAmount supports negative qty for return",
-      pass: calculateAmount(-3, 19) === -57,
-    },
-    {
-      name: "calculateTotal sums positive and negative amounts",
-      pass: calculateTotal([{ amount: 100 }, { amount: -40 }]) === 60,
-    },
-    {
-      name: "calculateTotalQty sums quantities",
-      pass: calculateTotalQty([{ qty: 2 }, { qty: -1 }, { qty: 5 }]) === 6,
-    },
-    {
-      name: "findProductByQuery matches barcode",
-      pass:
-        findProductByQuery(initialProducts, "4710012345678")?.name ===
-        "可口可樂 600ml",
-    },
-    {
-      name: "getActiveSupplierCount counts active suppliers",
-      pass: getActiveSupplierCount(initialSuppliers) === 3,
-    },
-    {
-      name: "filterBatchRecords filters by exact day",
-      pass: filterBatchRecords(initialBatchRecords, "2026-06-08", "").length === 2,
-    },
-    {
-      name: "recalcBatchTotals recomputes edited totals",
-      pass:
-        recalcBatchTotals({
-          id: "t",
-          date: "2026-06-01",
-          supplier: "A",
-          itemCount: 1,
-          totalAmount: 0,
-          lines: [
-            {
-              barcode: "1",
-              product: "P",
-              supplier: "A",
-              qty: 2,
-              price: 12,
-              amount: 0,
-            },
-          ],
-        }).totalAmount === 24,
-    },
-    {
-      name: "normalizeTemplates enforces one active template when none active",
-      pass:
-        normalizeTemplates([
-          {
-            id: "a",
-            name: "A",
-            paperSize: "4 × 6 cm",
-            showCategory: true,
-            showBarcode: true,
-            showSpec: false,
-            showUpdatedDate: false,
-            priceSize: "md",
-            active: false,
-          },
-          {
-            id: "b",
-            name: "B",
-            paperSize: "4 × 6 cm",
-            showCategory: true,
-            showBarcode: true,
-            showSpec: false,
-            showUpdatedDate: false,
-            priceSize: "md",
-            active: false,
-          },
-        ])[0].active === true,
-    },
-    {
-      name: "normalizePrinterDevices enforces one default printer when none default",
-      pass:
-        normalizePrinterDevices([
-          {
-            id: "p1",
-            name: "A",
-            brand: "B",
-            model: "M",
-            usage: "貨卡",
-            connectionType: "Wi-Fi",
-            ipAddress: "",
-            port: "",
-            deviceId: "",
-            paperWidth: "57mm",
-            cutterEnabled: true,
-            isDefault: false,
-            status: "未連線",
-          },
-          {
-            id: "p2",
-            name: "B",
-            brand: "B",
-            model: "M",
-            usage: "備用",
-            connectionType: "Bluetooth",
-            ipAddress: "",
-            port: "",
-            deviceId: "",
-            paperWidth: "57mm",
-            cutterEnabled: false,
-            isDefault: false,
-            status: "未連線",
-          },
-        ])[0].isDefault === true,
-    },
-    {
-      name: "normalizeBarcodeValue removes spaces",
-      pass: normalizeBarcodeValue(" 47 10012345678 ") === "4710012345678",
-    },
-    {
-      name: "normalizeStoreName trims whitespace",
-      pass: normalizeStoreName("  嘉義門市  ") === "嘉義門市",
-    },
-    {
-      name: "buildFlowItem copies product supplier and amount",
-      pass: (() => {
-        const item = buildFlowItem(initialProducts[0], 4);
-        return item.supplier === "大發商行" && item.amount === 84;
-      })(),
-    },
-    {
-      name: "recalcBatchTotals updates itemCount",
-      pass:
-        recalcBatchTotals({
-          id: "t2",
-          date: "2026-06-01",
-          supplier: "B",
-          itemCount: 0,
-          totalAmount: 0,
-          lines: [
-            {
-              barcode: "1",
-              product: "P1",
-              supplier: "B",
-              qty: 1,
-              price: 10,
-              amount: 10,
-            },
-            {
-              barcode: "2",
-              product: "P2",
-              supplier: "B",
-              qty: 2,
-              price: 5,
-              amount: 10,
-            },
-          ],
-        }).itemCount === 2,
-    },
-    {
-      name: "parseBatchInputValue accepts negative integer",
-      pass: parseBatchInputValue("-3", 0) === -3,
-    },
-    {
-      name: "parseBatchInputValue falls back on blank draft",
-      pass: parseBatchInputValue("", 19) === 19,
-    },
-    {
-      name: "parseBatchInputValue falls back on invalid draft",
-      pass: parseBatchInputValue("abc", 7) === 7,
-    },
-  ];
+function makeCsv(rows: (string | number | boolean)[][]) {
+  return rows
+    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+}
+
+function downloadCsv(filename: string, csv: string) {
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function parseCsvFile(file: File) {
+  const text = await file.text();
+  const lines = text.replace(/^\ufeff/, "").split(/\r?\n/).filter(Boolean);
+  if (lines.length <= 1) return [];
+  const parseCell = (cell: string) => cell.replace(/^"|"$/g, "").replace(/""/g, '"').trim();
+  return lines.slice(1).map((line) => line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(parseCell));
 }
 
 function BarcodeGraphic({
@@ -705,7 +491,7 @@ function CompactBatchNumberInput({
 }) {
   const [draft, setDraft] = useState(String(value));
 
-  React.useEffect(() => {
+  useEffect(() => {
     setDraft(String(value));
   }, [value]);
 
@@ -732,17 +518,10 @@ function CompactBatchNumberInput({
           );
         if (isValidDraft) setDraft(next);
       }}
-      onFocus={(e) => {
-        if (!readOnly) e.currentTarget.select();
-      }}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           commit();
-          e.currentTarget.blur();
-        }
-        if (e.key === "Escape") {
-          setDraft(String(value));
           e.currentTarget.blur();
         }
       }}
@@ -798,34 +577,19 @@ function BatchTable({
                 <CompactBatchNumberInput
                   value={line.qty}
                   readOnly={!editable}
-                  onChange={
-                    editable && onQtyChange
-                      ? (value) => onQtyChange(index, value)
-                      : undefined
-                  }
+                  onChange={editable && onQtyChange ? (value) => onQtyChange(index, value) : undefined}
                 />
               </div>
               <div className="pl-1 pr-3 py-2.5">
                 <CompactBatchNumberInput
                   value={line.price}
                   readOnly={!editable}
-                  onChange={
-                    editable && onPriceChange
-                      ? (value) => onPriceChange(index, value)
-                      : undefined
-                  }
+                  onChange={editable && onPriceChange ? (value) => onPriceChange(index, value) : undefined}
                 />
               </div>
-              <div className="pl-5 pr-1 py-2.5 font-medium whitespace-nowrap">
-                NT$ {line.amount}
-              </div>
+              <div className="pl-5 pr-1 py-2.5 font-medium whitespace-nowrap">NT$ {line.amount}</div>
               <div className="flex justify-center px-0 py-2.5">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-5 w-5 rounded-md"
-                  onClick={() => onDelete?.(index)}
-                >
+                <Button variant="outline" size="icon" className="h-5 w-5 rounded-md" onClick={() => onDelete?.(index)}>
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
@@ -833,21 +597,6 @@ function BatchTable({
           ))}
         </div>
       </div>
-    </div>
-  );
-}
-
-function SectionTitle({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="space-y-1">
-      <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
-      <p className="text-sm text-muted-foreground">{description}</p>
     </div>
   );
 }
@@ -865,7 +614,7 @@ function ProductActionModal({
 }) {
   const [editForm, setEditForm] = useState<EditableProductFields | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!action || action.type !== "edit") {
       setEditForm(null);
       return;
@@ -882,123 +631,43 @@ function ProductActionModal({
   }, [action]);
 
   if (!action) return null;
-
-  const titleMap = {
-    edit: "修改商品",
-    print: "列印貨卡",
-    price: "變更價格",
-    disable: "停用商品",
-  } as const;
-
-  const descriptionMap = {
-    edit: "可直接修改商品名稱、條碼、分類、廠商、主檔進貨價、販售價、未稅價。",
-    print: "列印貨卡時只顯示貨卡需要的商品資訊，不顯示進貨價。",
-    price: "此原型先確認欲調整價格商品，後續可接價格編輯表單。",
-    disable: "此原型先確認停用目標商品，後續可接停用狀態寫入。",
-  } as const;
-
   const isEdit = action.type === "edit" && editForm !== null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 lg:items-center">
       <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
         <div className="border-b p-4">
-          <div className="text-lg font-semibold">{titleMap[action.type]}</div>
+          <div className="text-lg font-semibold">{action.type === "edit" ? "修改商品" : action.type === "print" ? "列印貨卡" : action.type === "price" ? "變更價格" : "停用商品"}</div>
           <div className="mt-1 text-sm text-muted-foreground">
-            {descriptionMap[action.type]}
+            {action.type === "edit" ? "可直接修改商品主檔資料。" : "此步驟為前端原型操作。"}
           </div>
         </div>
-
         {isEdit ? (
           <div className="space-y-3 p-4 text-sm">
             <div className="rounded-xl border p-3">
               <div className="text-xs text-muted-foreground">商品名稱</div>
-              <Input
-                value={editForm.name}
-                onChange={(e) =>
-                  setEditForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))
-                }
-                className="mt-2"
-              />
+              <Input value={editForm.name} onChange={(e) => setEditForm((prev) => prev ? { ...prev, name: e.target.value } : prev)} className="mt-2" />
             </div>
             <div className="rounded-xl border p-3">
               <div className="text-xs text-muted-foreground">商品條碼</div>
-              <Input
-                value={editForm.barcode}
-                onChange={(e) =>
-                  setEditForm((prev) => (prev ? { ...prev, barcode: e.target.value } : prev))
-                }
-                className="mt-2"
-              />
+              <Input value={editForm.barcode} onChange={(e) => setEditForm((prev) => prev ? { ...prev, barcode: e.target.value } : prev)} className="mt-2" />
             </div>
             <div className="rounded-xl border p-3">
               <div className="text-xs text-muted-foreground">分類</div>
-              <Input
-                value={editForm.category}
-                onChange={(e) =>
-                  setEditForm((prev) => (prev ? { ...prev, category: e.target.value } : prev))
-                }
-                className="mt-2"
-              />
+              <Input value={editForm.category} onChange={(e) => setEditForm((prev) => prev ? { ...prev, category: e.target.value } : prev)} className="mt-2" />
             </div>
             <div className="rounded-xl border p-3">
               <div className="text-xs text-muted-foreground">廠商</div>
-              <select
-                value={editForm.supplier}
-                onChange={(e) =>
-                  setEditForm((prev) => (prev ? { ...prev, supplier: e.target.value } : prev))
-                }
-                className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              >
-                {suppliers
-                  .filter((supplier) => supplier.active)
-                  .map((supplier) => (
-                    <option key={supplier.id} value={supplier.name}>
-                      {supplier.name}
-                    </option>
-                  ))}
+              <select value={editForm.supplier} onChange={(e) => setEditForm((prev) => prev ? { ...prev, supplier: e.target.value } : prev)} className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                {suppliers.filter((supplier) => supplier.active).map((supplier) => (
+                  <option key={supplier.id} value={supplier.name}>{supplier.name}</option>
+                ))}
               </select>
             </div>
             <div className="grid grid-cols-3 gap-3">
-              <div className="rounded-xl border p-3">
-                <div className="text-xs text-muted-foreground">主檔進貨價</div>
-                <Input
-                  type="number"
-                  value={editForm.cost}
-                  onChange={(e) =>
-                    setEditForm((prev) =>
-                      prev ? { ...prev, cost: Number(e.target.value) } : prev
-                    )
-                  }
-                  className="mt-2"
-                />
-              </div>
-              <div className="rounded-xl border p-3">
-                <div className="text-xs text-muted-foreground">販售價</div>
-                <Input
-                  type="number"
-                  value={editForm.price}
-                  onChange={(e) =>
-                    setEditForm((prev) =>
-                      prev ? { ...prev, price: Number(e.target.value) } : prev
-                    )
-                  }
-                  className="mt-2"
-                />
-              </div>
-              <div className="rounded-xl border p-3">
-                <div className="text-xs text-muted-foreground">未稅價</div>
-                <Input
-                  type="number"
-                  value={editForm.untaxed}
-                  onChange={(e) =>
-                    setEditForm((prev) =>
-                      prev ? { ...prev, untaxed: Number(e.target.value) } : prev
-                    )
-                  }
-                  className="mt-2"
-                />
-              </div>
+              <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">主檔進貨價</div><Input type="number" value={editForm.cost} onChange={(e) => setEditForm((prev) => prev ? { ...prev, cost: Number(e.target.value) } : prev)} className="mt-2" /></div>
+              <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">販售價</div><Input type="number" value={editForm.price} onChange={(e) => setEditForm((prev) => prev ? { ...prev, price: Number(e.target.value) } : prev)} className="mt-2" /></div>
+              <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">未稅價</div><Input type="number" value={editForm.untaxed} onChange={(e) => setEditForm((prev) => prev ? { ...prev, untaxed: Number(e.target.value) } : prev)} className="mt-2" /></div>
             </div>
           </div>
         ) : (
@@ -1006,69 +675,17 @@ function ProductActionModal({
             <div className="rounded-xl border p-3">
               <div className="font-medium">{action.product.name}</div>
               <div className="text-xs text-muted-foreground">{action.product.barcode}</div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Badge variant="secondary">{action.product.category}</Badge>
-                <Badge variant="outline">{action.product.supplier}</Badge>
-              </div>
             </div>
-            {action.type === "print" ? (
-              <div className="rounded-xl border p-3">
-                <div className="text-xs text-muted-foreground">販售價</div>
-                <div>NT$ {action.product.price}</div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl border p-3">
-                  <div className="text-xs text-muted-foreground">售價</div>
-                  <div>NT$ {action.product.price}</div>
-                </div>
-                <div className="rounded-xl border p-3">
-                  <div className="text-xs text-muted-foreground">進貨價</div>
-                  <div>NT$ {action.product.cost}</div>
-                </div>
-              </div>
-            )}
           </div>
         )}
-
         <div className="grid grid-cols-2 gap-2 border-t p-4">
-          <Button variant="outline" className="rounded-xl" onClick={onClose}>
-            關閉
-          </Button>
-          <Button
-            className="rounded-xl"
-            onClick={async () => {
-              if (isEdit && editForm) {
-                await onSaveEdit(action.product.barcode, editForm);
-              }
-              onClose();
-            }}
-          >
+          <Button variant="outline" className="rounded-xl" onClick={onClose}>關閉</Button>
+          <Button className="rounded-xl" onClick={async () => { if (isEdit && editForm) await onSaveEdit(action.product.barcode, editForm); onClose(); }}>
             {isEdit ? "儲存修改" : "確認"}
           </Button>
         </div>
       </div>
     </div>
-  );
-}
-
-function StatCard({
-  title,
-  value,
-  note,
-}: {
-  title: string;
-  value: string;
-  note: string;
-}) {
-  return (
-    <Card className="rounded-2xl shadow-sm">
-      <CardContent className="space-y-2 p-4">
-        <div className="text-sm text-muted-foreground">{title}</div>
-        <div className="text-2xl font-semibold">{value}</div>
-        <div className="text-xs text-muted-foreground">{note}</div>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -1098,11 +715,7 @@ function ProductRow({
 
   return (
     <div className="rounded-2xl border bg-white">
-      <button
-        type="button"
-        onClick={handleClick}
-        className="w-full p-4 text-left transition hover:shadow-sm"
-      >
+      <button type="button" onClick={handleClick} className="w-full p-4 text-left transition hover:shadow-sm">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <div className="font-medium">{item.name}</div>
@@ -1117,121 +730,34 @@ function ProductRow({
               <div className="text-sm">售價 NT$ {item.price}</div>
               <div className="text-xs text-muted-foreground">庫存 {item.stock}</div>
             </div>
-            {onToggle ? (
-              isOpen ? (
-                <ChevronUp className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              )
-            ) : null}
+            {onToggle ? (isOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />) : null}
           </div>
         </div>
       </button>
-
-      {onToggle ? (
-        <div className="border-t px-4 py-3">
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-2 rounded-xl"
-              onClick={(e) => {
-                e.stopPropagation();
-                onPrint?.(item);
-              }}
-            >
-              <Printer className="h-4 w-4" />列印貨卡
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-2 rounded-xl"
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit?.(item);
-              }}
-            >
-              <Pencil className="h-4 w-4" />修改
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
       {onToggle && isOpen ? (
         <div className="border-t px-4 pb-4 pt-3">
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="rounded-xl border p-3">
-              <div className="text-xs text-muted-foreground">分類</div>
-              <div>{item.category}</div>
-            </div>
-            <div className="rounded-xl border p-3">
-              <div className="text-xs text-muted-foreground">廠商</div>
-              <div>{item.supplier}</div>
-            </div>
-            <div className="rounded-xl border p-3">
-              <div className="text-xs text-muted-foreground">主檔進貨價</div>
-              <div>NT$ {item.cost}</div>
-            </div>
-            <div className="rounded-xl border p-3">
-              <div className="text-xs text-muted-foreground">販售價</div>
-              <div>NT$ {item.price}</div>
-            </div>
-            <div className="rounded-xl border p-3">
-              <div className="text-xs text-muted-foreground">未稅價</div>
-              <div>NT$ {item.untaxed}</div>
-            </div>
-            <div className="rounded-xl border p-3">
-              <div className="text-xs text-muted-foreground">目前庫存</div>
-              <div>{item.stock}</div>
-            </div>
+            <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">分類</div><div>{item.category}</div></div>
+            <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">廠商</div><div>{item.supplier}</div></div>
+            <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">主檔進貨價</div><div>NT$ {item.cost}</div></div>
+            <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">販售價</div><div>NT$ {item.price}</div></div>
+            <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">未稅價</div><div>NT$ {item.untaxed}</div></div>
+            <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">目前庫存</div><div>{item.stock}</div></div>
           </div>
-
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button
-              variant="outline"
-              className="gap-2 rounded-xl"
-              onClick={() => onEdit?.(item)}
-            >
-              <Pencil className="h-4 w-4" />修改商品
-            </Button>
-            <Button
-              variant="outline"
-              className="gap-2 rounded-xl"
-              onClick={() => onChangePrice?.(item)}
-            >
-              <FileText className="h-4 w-4" />變更價格
-            </Button>
-            <Button
-              variant="outline"
-              className="gap-2 rounded-xl"
-              onClick={() => onPrint?.(item)}
-            >
-              <Printer className="h-4 w-4" />列印貨卡
-            </Button>
-            <Button
-              variant="outline"
-              className="gap-2 rounded-xl"
-              onClick={() => onDisable?.(item)}
-            >
-              <Trash2 className="h-4 w-4" />停用商品
-            </Button>
+            <Button variant="outline" className="gap-2 rounded-xl" onClick={() => onEdit?.(item)}><Pencil className="h-4 w-4" />修改商品</Button>
+            <Button variant="outline" className="gap-2 rounded-xl" onClick={() => onChangePrice?.(item)}><FileText className="h-4 w-4" />變更價格</Button>
+            <Button variant="outline" className="gap-2 rounded-xl" onClick={() => onPrint?.(item)}><Printer className="h-4 w-4" />列印貨卡</Button>
+            <Button variant="outline" className="gap-2 rounded-xl" onClick={() => onDisable?.(item)}><Trash2 className="h-4 w-4" />停用商品</Button>
           </div>
-
           <Separator className="my-3" />
           <div className="space-y-3">
             <div className="font-medium">最近異動</div>
             {item.history.map((h, i) => (
-              <div
-                key={`${item.barcode}-${h.date}-${h.type}-${i}`}
-                className="flex items-center justify-between rounded-xl border p-3 text-sm"
-              >
+              <div key={`${item.barcode}-${h.date}-${i}`} className="flex items-center justify-between rounded-xl border p-3 text-sm">
                 <div>
-                  <div>
-                    {h.date}｜{h.type}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    數量 {h.qty} ・ 單價 NT$ {h.price}
-                  </div>
+                  <div>{h.date}｜{h.type}</div>
+                  <div className="text-xs text-muted-foreground">數量 {h.qty} ・ 單價 NT$ {h.price}</div>
                 </div>
                 <div className="font-medium">NT$ {h.amount}</div>
               </div>
@@ -1254,16 +780,15 @@ function ProductMaster({
   suppliers: Supplier[];
   onSaveEdit: (barcode: string, patch: EditableProductFields) => Promise<void> | void;
   onCreateProduct: (payload: NewProductFields) => Promise<void> | void;
-  onImportProducts: (payload: ImportProductFields[]) => Promise<void> | void;
+  onImportProducts: (payload: NewProductFields[]) => Promise<void> | void;
 }) {
-  const [query, setQuery] = useState("");
+  const [queryText, setQueryText] = useState("");
   const [openId, setOpenId] = useState<string>(products[0]?.barcode ?? "");
   const [productAction, setProductAction] = useState<ProductAction>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanValue, setScanValue] = useState("");
   const [scanNotice, setScanNotice] = useState("");
-  const importInputRef = useRef<HTMLInputElement | null>(null);
   const [createForm, setCreateForm] = useState<NewProductFields>({
     barcode: "",
     name: "",
@@ -1276,89 +801,46 @@ function ProductMaster({
   });
 
   const filtered = useMemo(() => {
-    const q = query.trim();
+    const q = queryText.trim();
     if (!q) return products;
     return products.filter(
       (p) => p.name.includes(q) || p.barcode.includes(q) || p.supplier.includes(q)
     );
-  }, [products, query]);
+  }, [products, queryText]);
 
   const exportProducts = () => {
-    const headers = [
-      "barcode",
-      "name",
-      "category",
-      "supplier",
-      "cost",
-      "price",
-      "untaxed",
-      "stock",
-    ];
-    const rows = products.map((product) => [
-      product.barcode,
-      product.name,
-      product.category,
-      product.supplier,
-      product.cost,
-      product.price,
-      product.untaxed,
-      product.stock,
+    const csv = makeCsv([
+      ["barcode", "name", "category", "supplier", "cost", "price", "untaxed", "stock"],
+      ...products.map((product) => [product.barcode, product.name, product.category, product.supplier, product.cost, product.price, product.untaxed, product.stock]),
     ]);
-    const csv = [headers, ...rows]
-      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "products-export.csv";
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadCsv("products-export.csv", csv);
   };
 
-  const importProducts = (file: File | null) => {
+  const importProducts = async (file: File | null) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const text = String(reader.result ?? "").trim();
-      if (!text) return;
-      const lines = text.replace(/^\ufeff/, "").split(/\r?\n/).filter(Boolean);
-      if (lines.length <= 1) return;
-      const parseCell = (cell: string) =>
-        cell.replace(/^"|"$/g, "").replace(/""/g, '"').trim();
-      const rows = lines.slice(1).map((line) => {
-        const parts = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(parseCell);
-        return {
-          barcode: parts[0] || "",
-          name: parts[1] || "",
-          category: parts[2] || "",
-          supplier:
-            parts[3] ||
-            (suppliers.find((supplier) => supplier.active)?.name ?? ""),
-          cost: Number(parts[4] || 0),
-          price: Number(parts[5] || 0),
-          untaxed: Number(parts[6] || 0),
-          stock: Number(parts[7] || 0),
-        } as ImportProductFields;
-      }).filter((item) => item.barcode && item.name);
-      if (rows.length > 0) {
-        await onImportProducts(rows);
-      }
-    };
-    reader.readAsText(file, "utf-8");
+    const rows = await parseCsvFile(file);
+    const payload = rows
+      .map((parts) => ({
+        barcode: parts[0] || "",
+        name: parts[1] || "",
+        category: parts[2] || "",
+        supplier: parts[3] || suppliers.find((supplier) => supplier.active)?.name || "",
+        cost: Number(parts[4] || 0),
+        price: Number(parts[5] || 0),
+        untaxed: Number(parts[6] || 0),
+        stock: Number(parts[7] || 0),
+      }))
+      .filter((item) => item.barcode && item.name);
+    if (payload.length > 0) await onImportProducts(payload);
   };
 
   const handleScanSearch = () => {
-    const normalized = scanValue.trim();
-    if (!normalized) return;
-    const matched = products.find(
-      (product) => product.barcode.includes(normalized) || product.name.includes(normalized)
-    );
+    const matched = findProductByQuery(products, scanValue);
     if (!matched) {
-      setScanNotice(`找不到商品：${normalized}`);
+      setScanNotice(`找不到商品：${scanValue}`);
       return;
     }
-    setQuery(matched.barcode);
+    setQueryText(matched.barcode);
     setOpenId(matched.barcode);
     setScanNotice(`已找到：${matched.name}`);
     setScanOpen(false);
@@ -1370,57 +852,23 @@ function ProductMaster({
       <Card className="rounded-2xl shadow-sm">
         <CardHeader>
           <CardTitle>商品主檔</CardTitle>
-          <CardDescription>
-            支援搜尋、掃碼查詢、新增商品，以及匯入 / 匯出商品資料。
-          </CardDescription>
+          <CardDescription>支援搜尋、掃碼查詢、新增商品，以及匯入 / 匯出商品資料。</CardDescription>
         </CardHeader>
         <CardContent className="min-w-0 space-y-4">
           <div className="flex flex-wrap gap-2">
             <div className="min-w-[220px] flex-1">
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="搜尋商品名稱 / 條碼 / 廠商"
-              />
+              <Input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="搜尋商品名稱 / 條碼 / 廠商" />
             </div>
-            <Button
-              variant="outline"
-              className="gap-2 rounded-xl"
-              onClick={() => {
-                setScanOpen(true);
-                setScanNotice("");
-              }}
-            >
-              <ScanLine className="h-4 w-4" />掃碼
-            </Button>
-            <Button className="gap-2 rounded-xl" onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4" />新增
-            </Button>
+            <Button variant="outline" className="gap-2 rounded-xl" onClick={() => { setScanOpen(true); setScanNotice(""); }}><ScanLine className="h-4 w-4" />掃碼</Button>
+            <Button className="gap-2 rounded-xl" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />新增</Button>
             <label className="inline-flex">
-              <input
-                ref={importInputRef}
-                type="file"
-                accept=".csv"
-                className="hidden"
-                onChange={(e) => {
-                  importProducts(e.target.files?.[0] ?? null);
-                  e.currentTarget.value = "";
-                }}
-              />
-              <span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer">
-                <Upload className="h-4 w-4" />匯入
-              </span>
+              <input type="file" accept=".csv" className="hidden" onChange={(e) => { importProducts(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} />
+              <span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />匯入</span>
             </label>
-            <Button variant="outline" className="gap-2 rounded-xl" onClick={exportProducts}>
-              <Download className="h-4 w-4" />匯出
-            </Button>
+            <Button variant="outline" className="gap-2 rounded-xl" onClick={exportProducts}><Download className="h-4 w-4" />匯出</Button>
           </div>
 
-          {scanNotice ? (
-            <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
-              {scanNotice}
-            </div>
-          ) : null}
+          {scanNotice ? <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">{scanNotice}</div> : null}
 
           <div className="space-y-3">
             {filtered.map((item) => {
@@ -1440,41 +888,14 @@ function ProductMaster({
             })}
           </div>
 
-          <ProductActionModal
-            action={productAction}
-            suppliers={suppliers}
-            onClose={() => setProductAction(null)}
-            onSaveEdit={onSaveEdit}
-          />
+          <ProductActionModal action={productAction} suppliers={suppliers} onClose={() => setProductAction(null)} onSaveEdit={onSaveEdit} />
 
           {scanOpen ? (
             <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 lg:items-center">
               <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
-                <div className="border-b p-4">
-                  <div className="text-lg font-semibold">掃碼查詢商品</div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    先用輸入條碼模擬掃碼，找到後會自動展開商品。
-                  </div>
-                </div>
-                <div className="space-y-3 p-4">
-                  <Input
-                    value={scanValue}
-                    onChange={(e) => setScanValue(e.target.value)}
-                    placeholder="輸入條碼或商品名稱"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleScanSearch();
-                    }}
-                    autoFocus
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2 border-t p-4">
-                  <Button variant="outline" className="rounded-xl" onClick={() => setScanOpen(false)}>
-                    取消
-                  </Button>
-                  <Button className="rounded-xl" onClick={handleScanSearch}>
-                    搜尋
-                  </Button>
-                </div>
+                <div className="border-b p-4"><div className="text-lg font-semibold">掃碼查詢商品</div><div className="mt-1 text-sm text-muted-foreground">先用輸入條碼模擬掃碼，找到後會自動展開商品。</div></div>
+                <div className="space-y-3 p-4"><Input value={scanValue} onChange={(e) => setScanValue(e.target.value)} placeholder="輸入條碼或商品名稱" onKeyDown={(e) => { if (e.key === "Enter") handleScanSearch(); }} autoFocus /></div>
+                <div className="grid grid-cols-2 gap-2 border-t p-4"><Button variant="outline" className="rounded-xl" onClick={() => setScanOpen(false)}>取消</Button><Button className="rounded-xl" onClick={handleScanSearch}>搜尋</Button></div>
               </div>
             </div>
           ) : null}
@@ -1482,133 +903,22 @@ function ProductMaster({
           {createOpen ? (
             <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 lg:items-center">
               <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
-                <div className="border-b p-4">
-                  <div className="text-lg font-semibold">新增商品</div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    新增後會直接寫入 Firebase 商品主檔。
-                  </div>
-                </div>
-
+                <div className="border-b p-4"><div className="text-lg font-semibold">新增商品</div><div className="mt-1 text-sm text-muted-foreground">新增後會直接寫入 Firebase 商品主檔。</div></div>
                 <div className="space-y-3 p-4 text-sm">
-                  <div className="rounded-xl border p-3">
-                    <div className="text-xs text-muted-foreground">商品名稱</div>
-                    <Input
-                      value={createForm.name}
-                      onChange={(e) =>
-                        setCreateForm((prev) => ({ ...prev, name: e.target.value }))
-                      }
-                      className="mt-2"
-                    />
-                  </div>
-                  <div className="rounded-xl border p-3">
-                    <div className="text-xs text-muted-foreground">商品條碼</div>
-                    <Input
-                      value={createForm.barcode}
-                      onChange={(e) =>
-                        setCreateForm((prev) => ({ ...prev, barcode: e.target.value }))
-                      }
-                      className="mt-2"
-                    />
-                  </div>
-                  <div className="rounded-xl border p-3">
-                    <div className="text-xs text-muted-foreground">分類</div>
-                    <Input
-                      value={createForm.category}
-                      onChange={(e) =>
-                        setCreateForm((prev) => ({ ...prev, category: e.target.value }))
-                      }
-                      className="mt-2"
-                    />
-                  </div>
-                  <div className="rounded-xl border p-3">
-                    <div className="text-xs text-muted-foreground">廠商</div>
-                    <select
-                      value={createForm.supplier}
-                      onChange={(e) =>
-                        setCreateForm((prev) => ({ ...prev, supplier: e.target.value }))
-                      }
-                      className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                      {suppliers
-                        .filter((supplier) => supplier.active)
-                        .map((supplier) => (
-                          <option key={supplier.id} value={supplier.name}>
-                            {supplier.name}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
+                  <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">商品名稱</div><Input value={createForm.name} onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))} className="mt-2" /></div>
+                  <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">商品條碼</div><Input value={createForm.barcode} onChange={(e) => setCreateForm((prev) => ({ ...prev, barcode: e.target.value }))} className="mt-2" /></div>
+                  <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">分類</div><Input value={createForm.category} onChange={(e) => setCreateForm((prev) => ({ ...prev, category: e.target.value }))} className="mt-2" /></div>
+                  <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">廠商</div><select value={createForm.supplier} onChange={(e) => setCreateForm((prev) => ({ ...prev, supplier: e.target.value }))} className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">{suppliers.filter((supplier) => supplier.active).map((supplier) => <option key={supplier.id} value={supplier.name}>{supplier.name}</option>)}</select></div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-xl border p-3">
-                      <div className="text-xs text-muted-foreground">主檔進貨價</div>
-                      <Input
-                        type="number"
-                        value={createForm.cost}
-                        onChange={(e) =>
-                          setCreateForm((prev) => ({ ...prev, cost: Number(e.target.value) }))
-                        }
-                        className="mt-2"
-                      />
-                    </div>
-                    <div className="rounded-xl border p-3">
-                      <div className="text-xs text-muted-foreground">販售價</div>
-                      <Input
-                        type="number"
-                        value={createForm.price}
-                        onChange={(e) =>
-                          setCreateForm((prev) => ({ ...prev, price: Number(e.target.value) }))
-                        }
-                        className="mt-2"
-                      />
-                    </div>
-                    <div className="rounded-xl border p-3">
-                      <div className="text-xs text-muted-foreground">未稅價</div>
-                      <Input
-                        type="number"
-                        value={createForm.untaxed}
-                        onChange={(e) =>
-                          setCreateForm((prev) => ({ ...prev, untaxed: Number(e.target.value) }))
-                        }
-                        className="mt-2"
-                      />
-                    </div>
-                    <div className="rounded-xl border p-3">
-                      <div className="text-xs text-muted-foreground">庫存</div>
-                      <Input
-                        type="number"
-                        value={createForm.stock}
-                        onChange={(e) =>
-                          setCreateForm((prev) => ({ ...prev, stock: Number(e.target.value) }))
-                        }
-                        className="mt-2"
-                      />
-                    </div>
+                    <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">主檔進貨價</div><Input type="number" value={createForm.cost} onChange={(e) => setCreateForm((prev) => ({ ...prev, cost: Number(e.target.value) }))} className="mt-2" /></div>
+                    <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">販售價</div><Input type="number" value={createForm.price} onChange={(e) => setCreateForm((prev) => ({ ...prev, price: Number(e.target.value) }))} className="mt-2" /></div>
+                    <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">未稅價</div><Input type="number" value={createForm.untaxed} onChange={(e) => setCreateForm((prev) => ({ ...prev, untaxed: Number(e.target.value) }))} className="mt-2" /></div>
+                    <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">庫存</div><Input type="number" value={createForm.stock} onChange={(e) => setCreateForm((prev) => ({ ...prev, stock: Number(e.target.value) }))} className="mt-2" /></div>
                   </div>
                 </div>
-
                 <div className="grid grid-cols-2 gap-2 border-t p-4">
-                  <Button variant="outline" className="rounded-xl" onClick={() => setCreateOpen(false)}>
-                    取消
-                  </Button>
-                  <Button
-                    className="rounded-xl"
-                    onClick={async () => {
-                      await onCreateProduct(createForm);
-                      setCreateOpen(false);
-                      setCreateForm({
-                        barcode: "",
-                        name: "",
-                        category: "",
-                        supplier: suppliers.find((supplier) => supplier.active)?.name ?? "",
-                        cost: 0,
-                        price: 0,
-                        untaxed: 0,
-                        stock: 0,
-                      });
-                    }}
-                  >
-                    儲存新增
-                  </Button>
+                  <Button variant="outline" className="rounded-xl" onClick={() => setCreateOpen(false)}>取消</Button>
+                  <Button className="rounded-xl" onClick={async () => { await onCreateProduct(createForm); setCreateOpen(false); setCreateForm({ barcode: "", name: "", category: "", supplier: suppliers.find((supplier) => supplier.active)?.name ?? "", cost: 0, price: 0, untaxed: 0, stock: 0 }); }}>儲存新增</Button>
                 </div>
               </div>
             </div>
@@ -1635,53 +945,15 @@ function InboundQtyModal({
   onConfirm: () => void;
 }) {
   if (!open || !product) return null;
-
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 lg:items-center">
       <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
-        <div className="border-b p-4">
-          <div className="text-lg font-semibold">輸入數量</div>
-          <div className="mt-1 text-sm text-muted-foreground">
-            掃碼後直接輸入數量並儲存，正數為進貨、負數為退貨。
-          </div>
-        </div>
-
+        <div className="border-b p-4"><div className="text-lg font-semibold">輸入數量</div><div className="mt-1 text-sm text-muted-foreground">掃碼後直接輸入數量並儲存，正數為進貨、負數為退貨。</div></div>
         <div className="space-y-4 p-4">
-          <div className="rounded-xl border p-3">
-            <div className="font-medium">{product.name}</div>
-            <div className="text-xs text-muted-foreground">{product.barcode}</div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Badge variant="secondary">{product.category}</Badge>
-              <Badge variant="outline">{product.supplier}</Badge>
-            </div>
-            <div className="mt-3 text-sm text-muted-foreground">
-              主檔進價 NT$ {product.cost}
-            </div>
-          </div>
-
-          <div className="rounded-xl border p-3">
-            <div className="text-xs text-muted-foreground">數量</div>
-            <Input
-              type="number"
-              value={qty}
-              onChange={(e) => setQty(Number(e.target.value))}
-              className="mt-2 text-lg"
-              autoFocus
-            />
-            <div className="mt-2 text-xs text-muted-foreground">
-              正數 = 進貨，負數 = 退貨，0 不可儲存。
-            </div>
-          </div>
+          <div className="rounded-xl border p-3"><div className="font-medium">{product.name}</div><div className="text-xs text-muted-foreground">{product.barcode}</div><div className="mt-3 text-sm text-muted-foreground">主檔進價 NT$ {product.cost}</div></div>
+          <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">數量</div><Input type="number" value={qty} onChange={(e) => setQty(Number(e.target.value))} className="mt-2 text-lg" autoFocus /></div>
         </div>
-
-        <div className="grid grid-cols-2 gap-2 border-t p-4">
-          <Button variant="outline" className="rounded-xl" onClick={onClose}>
-            取消
-          </Button>
-          <Button className="rounded-xl" onClick={onConfirm} disabled={qty === 0}>
-            儲存並繼續
-          </Button>
-        </div>
+        <div className="grid grid-cols-2 gap-2 border-t p-4"><Button variant="outline" className="rounded-xl" onClick={onClose}>取消</Button><Button className="rounded-xl" onClick={onConfirm} disabled={qty === 0}>儲存並繼續</Button></div>
       </div>
     </div>
   );
@@ -1695,13 +967,7 @@ function InboundWorkbench({
   onSaveBatch: (items: FlowItem[]) => Promise<void> | void;
 }) {
   const [scanInput, setScanInput] = useState<string>(products[0]?.barcode ?? "");
-  const [items, setItems] = useState<FlowItem[]>(
-    products.length >= 3
-      ? [buildFlowItem(products[0], 3), buildFlowItem(products[2], -2)]
-      : products.length >= 1
-        ? [buildFlowItem(products[0], 1)]
-        : []
-  );
+  const [items, setItems] = useState<FlowItem[]>([]);
   const [scanNotice, setScanNotice] = useState<string>("");
   const [scanCandidate, setScanCandidate] = useState<Product | null>(null);
   const [qtyDraft, setQtyDraft] = useState<number>(1);
@@ -1712,13 +978,13 @@ function InboundWorkbench({
 
   const handleScan = () => {
     const found = findProductByQuery(products, scanInput);
-    if (found) {
-      setScanCandidate(found);
-      setQtyDraft(1);
-      setScanNotice(`已掃描：${found.name}`);
-    } else {
+    if (!found) {
       setScanNotice(`找不到條碼：${scanInput}`);
+      return;
     }
+    setScanCandidate(found);
+    setQtyDraft(1);
+    setScanNotice(`已掃描：${found.name}`);
   };
 
   const confirmScanItem = () => {
@@ -1728,29 +994,6 @@ function InboundWorkbench({
     setScanInput("");
     setScanCandidate(null);
     setQtyDraft(1);
-  };
-
-  const removeItem = (index: number) => {
-    setItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
-  };
-
-  const updateItem = (
-    index: number,
-    patch: Partial<Pick<FlowItem, "qty" | "price">>
-  ) => {
-    setItems((prev) =>
-      prev.map((item, itemIndex) => {
-        if (itemIndex !== index) return item;
-        const nextQty = patch.qty ?? item.qty;
-        const nextPrice = patch.price ?? item.price;
-        return {
-          ...item,
-          qty: nextQty,
-          price: nextPrice,
-          amount: calculateAmount(nextQty, nextPrice),
-        };
-      })
-    );
   };
 
   const tableLines: BatchLine[] = items.map((item) => ({
@@ -1768,179 +1011,86 @@ function InboundWorkbench({
         <Card className="rounded-2xl shadow-sm">
           <CardHeader>
             <CardTitle>進貨作業</CardTitle>
-            <CardDescription>
-              現場流程改為掃碼後直接彈窗輸入數量，儲存後立即回到掃碼狀態繼續作業。
-            </CardDescription>
+            <CardDescription>現場流程改為掃碼後直接彈窗輸入數量，儲存後立即回到掃碼狀態繼續作業。</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="rounded-2xl border p-4">
               <div className="text-sm font-medium">掃碼 / 輸入條碼</div>
               <div className="mt-3 flex gap-2">
-                <Input
-                  value={scanInput}
-                  onChange={(e) => setScanInput(e.target.value)}
-                  placeholder="條碼 / 商品名稱"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleScan();
-                  }}
-                />
-                <Button className="gap-2 rounded-xl" onClick={handleScan}>
-                  <ScanLine className="h-4 w-4" />掃碼
-                </Button>
-              </div>
-              <div className="mt-3 text-xs text-muted-foreground">
-                掃碼後會直接跳出數量輸入視窗，適合忙碌現場快速連續進貨。
+                <Input value={scanInput} onChange={(e) => setScanInput(e.target.value)} placeholder="條碼 / 商品名稱" onKeyDown={(e) => { if (e.key === "Enter") handleScan(); }} />
+                <Button className="gap-2 rounded-xl" onClick={handleScan}><ScanLine className="h-4 w-4" />掃碼</Button>
               </div>
             </div>
-
-            {scanNotice ? (
-              <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
-                {scanNotice}
-              </div>
-            ) : null}
-
+            {scanNotice ? <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">{scanNotice}</div> : null}
             <div className="grid grid-cols-3 gap-2 text-sm">
-              <div className="rounded-2xl border-2 p-3.5">
-                <div className="text-[12px] leading-5 text-muted-foreground">本批商品數</div>
-                <div className="mt-1 text-[16px] font-semibold leading-none">
-                  {items.length}
-                </div>
-              </div>
-              <div className="rounded-2xl border-2 p-3.5">
-                <div className="text-[12px] leading-5 text-muted-foreground">本批總件數</div>
-                <div className="mt-1 text-[16px] font-semibold leading-none">
-                  {totalQty}
-                </div>
-              </div>
-              <div className="rounded-2xl border-2 p-3.5">
-                <div className="text-[12px] leading-5 text-muted-foreground">本批總金額</div>
-                <div className="mt-1 text-[16px] font-semibold leading-none">
-                  NT$ {total}
-                </div>
-              </div>
+              <div className="rounded-2xl border-2 p-3.5"><div className="text-[12px] leading-5 text-muted-foreground">本批商品數</div><div className="mt-1 text-[16px] font-semibold leading-none">{items.length}</div></div>
+              <div className="rounded-2xl border-2 p-3.5"><div className="text-[12px] leading-5 text-muted-foreground">本批總件數</div><div className="mt-1 text-[16px] font-semibold leading-none">{totalQty}</div></div>
+              <div className="rounded-2xl border-2 p-3.5"><div className="text-[12px] leading-5 text-muted-foreground">本批總金額</div><div className="mt-1 text-[16px] font-semibold leading-none">NT$ {total}</div></div>
             </div>
-
-            {latestItem ? (
-              <div className="rounded-2xl border p-4 text-sm">
-                <div className="font-medium">最新加入</div>
-                <div className="mt-2">{latestItem.name}</div>
-                <div className="text-xs text-muted-foreground">{latestItem.barcode}</div>
-                <div className="mt-2 text-muted-foreground">
-                  數量 {latestItem.qty} ・ 單價 NT$ {latestItem.price} ・ 小計 NT$ {latestItem.amount}
-                </div>
-              </div>
-            ) : null}
+            {latestItem ? <div className="rounded-2xl border p-4 text-sm"><div className="font-medium">最新加入</div><div className="mt-2">{latestItem.name}</div><div className="text-xs text-muted-foreground">{latestItem.barcode}</div></div> : null}
           </CardContent>
         </Card>
 
         <Card className="min-w-0 rounded-2xl shadow-sm">
           <CardHeader>
             <CardTitle>本批紀錄清單</CardTitle>
-            <CardDescription>
-              以表格列出本批商品，現場可快速檢查數量、單價與總額。
-            </CardDescription>
+            <CardDescription>以表格列出本批商品，現場可快速檢查數量、單價與總額。</CardDescription>
           </CardHeader>
           <CardContent className="min-w-0 space-y-4">
             <BatchTable
               lines={tableLines}
               editable={true}
-              onQtyChange={(index, value) => updateItem(index, { qty: value })}
-              onPriceChange={(index, value) => updateItem(index, { price: value })}
-              onDelete={removeItem}
+              onQtyChange={(index, value) => setItems((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, qty: value, amount: calculateAmount(value, item.price) } : item))}
+              onPriceChange={(index, value) => setItems((prev) => prev.map((item, itemIndex) => itemIndex === index ? { ...item, price: value, amount: calculateAmount(item.qty, value) } : item))}
+              onDelete={(index) => setItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
             />
-            <div className="px-2 pt-2 text-[11px] text-muted-foreground">
-              可左右滑動查看完整欄位
-            </div>
-            <Button
-              className="w-full rounded-xl"
-              onClick={async () => {
-                await onSaveBatch(items);
-                setItems([]);
-                setScanNotice("本批紀錄已儲存");
-              }}
-              disabled={items.length === 0}
-            >
-              儲存本批紀錄
-            </Button>
+            <Button className="w-full rounded-xl" onClick={async () => { await onSaveBatch(items); setItems([]); setScanNotice("本批紀錄已儲存"); }} disabled={items.length === 0}>儲存本批紀錄</Button>
           </CardContent>
         </Card>
 
-        <InboundQtyModal
-          open={scanCandidate !== null}
-          product={scanCandidate}
-          qty={qtyDraft}
-          setQty={setQtyDraft}
-          onClose={() => setScanCandidate(null)}
-          onConfirm={confirmScanItem}
-        />
+        <InboundQtyModal open={scanCandidate !== null} product={scanCandidate} qty={qtyDraft} setQty={setQtyDraft} onClose={() => setScanCandidate(null)} onConfirm={confirmScanItem} />
       </div>
     </div>
   );
 }
 
 function StockQuery({ products }: { products: Product[] }) {
-  const [selected, setSelected] = useState<Product>(products[1] ?? products[0]);
+  const [queryText, setQueryText] = useState("");
+  const filtered = useMemo(() => {
+    const q = queryText.trim();
+    if (!q) return products;
+    return products.filter((product) => product.name.includes(q) || product.barcode.includes(q));
+  }, [products, queryText]);
+  const [selected, setSelected] = useState<Product>(products[0] ?? initialProducts[0]);
+
+  useEffect(() => {
+    if (!selected && products[0]) setSelected(products[0]);
+  }, [products, selected]);
 
   return (
     <div className="grid gap-4 pb-20 lg:grid-cols-[0.9fr_1.1fr] lg:pb-0">
       <Card className="rounded-2xl shadow-sm">
-        <CardHeader>
-          <CardTitle>庫存查詢</CardTitle>
-          <CardDescription>現場快速查價格、庫存與最近異動。</CardDescription>
-        </CardHeader>
+        <CardHeader><CardTitle>庫存查詢</CardTitle><CardDescription>現場快速查價格、庫存與最近異動。</CardDescription></CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex gap-2">
-            <Input placeholder="掃碼或搜尋商品" />
-            <Button variant="outline" className="gap-2 rounded-xl">
-              <ScanLine className="h-4 w-4" />掃碼
-            </Button>
-          </div>
-          {products.map((item) => (
-            <ProductRow key={item.barcode} item={item} onSelect={setSelected} />
-          ))}
+          <div className="flex gap-2"><Input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="掃碼或搜尋商品" /><Button variant="outline" className="gap-2 rounded-xl"><ScanLine className="h-4 w-4" />掃碼</Button></div>
+          {filtered.map((item) => <ProductRow key={item.barcode} item={item} onSelect={setSelected} />)}
         </CardContent>
       </Card>
-
       <Card className="rounded-2xl shadow-sm">
-        <CardHeader>
-          <CardTitle>庫存詳情</CardTitle>
-          <CardDescription>查價與查庫存應合在同一個商品詳情視圖。</CardDescription>
-        </CardHeader>
+        <CardHeader><CardTitle>庫存詳情</CardTitle><CardDescription>查價與查庫存合在同一個商品詳情視圖。</CardDescription></CardHeader>
         <CardContent className="space-y-4">
-          <div>
-            <div className="text-lg font-semibold">{selected.name}</div>
-            <div className="text-xs text-muted-foreground">{selected.barcode}</div>
-          </div>
+          <div><div className="text-lg font-semibold">{selected?.name}</div><div className="text-xs text-muted-foreground">{selected?.barcode}</div></div>
           <div className="grid grid-cols-3 gap-3 text-sm">
-            <div className="rounded-xl border p-3">
-              <div className="text-xs text-muted-foreground">販售價</div>
-              <div>NT$ {selected.price}</div>
-            </div>
-            <div className="rounded-xl border p-3">
-              <div className="text-xs text-muted-foreground">進貨價</div>
-              <div>NT$ {selected.cost}</div>
-            </div>
-            <div className="rounded-xl border p-3">
-              <div className="text-xs text-muted-foreground">庫存</div>
-              <div>{selected.stock}</div>
-            </div>
+            <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">販售價</div><div>NT$ {selected?.price}</div></div>
+            <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">進貨價</div><div>NT$ {selected?.cost}</div></div>
+            <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">庫存</div><div>{selected?.stock}</div></div>
           </div>
           <Separator />
           <div className="space-y-3">
             <div className="font-medium">最近異動紀錄</div>
-            {selected.history.map((h, i) => (
-              <div
-                key={`${h.date}-${h.type}-${i}`}
-                className="flex items-center justify-between rounded-xl border p-3 text-sm"
-              >
-                <div>
-                  <div>
-                    {h.type}｜{h.date}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    數量 {h.qty} ・ 單價 NT$ {h.price}
-                  </div>
-                </div>
+            {(selected?.history ?? []).map((h, i) => (
+              <div key={`${h.date}-${i}`} className="flex items-center justify-between rounded-xl border p-3 text-sm">
+                <div><div>{h.type}｜{h.date}</div><div className="text-xs text-muted-foreground">數量 {h.qty} ・ 單價 NT$ {h.price}</div></div>
                 <div>NT$ {h.amount}</div>
               </div>
             ))}
@@ -1969,38 +1119,16 @@ function ReceiptLabelPreview({
   return (
     <div className="mx-auto w-full max-w-sm rounded-[8px] border bg-white shadow-sm">
       <div className="flex min-h-[230px] flex-col px-4 pb-4 pt-4 text-black">
-        <div className="text-left text-[11px] font-semibold tracking-[0.08em] text-black/70">
-          {normalizeStoreName(storeName)}
-        </div>
-        <div className="mt-3 text-left text-[30px] font-bold leading-[1.2]">
-          {product.name}
-        </div>
+        <div className="text-left text-[11px] font-semibold tracking-[0.08em] text-black/70">{normalizeStoreName(storeName)}</div>
+        <div className="mt-3 text-left text-[30px] font-bold leading-[1.2]">{product.name}</div>
         <div className="mt-4 space-y-1 leading-tight">
           {showSpec ? <div className="text-[15px] font-semibold">規格：600ml</div> : null}
-          {showCategory ? (
-            <div className="text-[14px] font-medium">分類：{product.category}</div>
-          ) : null}
-          {showUpdatedDate ? (
-            <div className="text-[11px] text-black/70">更新：2026-06-12</div>
-          ) : null}
+          {showCategory ? <div className="text-[14px] font-medium">分類：{product.category}</div> : null}
+          {showUpdatedDate ? <div className="text-[11px] text-black/70">更新：2026-06-12</div> : null}
         </div>
         <div className="mt-auto flex items-end justify-between gap-4">
-          <div className="w-[54%] max-w-[220px]">
-            <BarcodeGraphic
-              value={product.barcode}
-              width={0.74}
-              height={34}
-              fontSize={7}
-              margin={0}
-              wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
-            />
-          </div>
-          <div className="flex items-end justify-end gap-1 text-right">
-            <div className={`${priceClassName} font-black leading-[0.82] tracking-tight`}>
-              {product.price}
-            </div>
-            <div className="pb-2 text-[26px] font-bold leading-none">元</div>
-          </div>
+          <div className="w-[54%] max-w-[220px]"><BarcodeGraphic value={product.barcode} width={0.74} height={34} fontSize={7} margin={0} wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0" /></div>
+          <div className="flex items-end justify-end gap-1 text-right"><div className={`${priceClassName} font-black leading-[0.82] tracking-tight`}>{product.price}</div><div className="pb-2 text-[26px] font-bold leading-none">元</div></div>
         </div>
       </div>
     </div>
@@ -2010,68 +1138,38 @@ function ReceiptLabelPreview({
 function LabelPrinter({
   products,
   storeName,
+  templates,
 }: {
   products: Product[];
   storeName: string;
+  templates: LabelTemplate[];
 }) {
-  const [selected, setSelected] = useState<Product>(products[0]);
+  const [queryText, setQueryText] = useState("");
+  const [selected, setSelected] = useState<Product>(products[0] ?? initialProducts[0]);
+  const activeTemplate = templates.find((template) => template.active) ?? templates[0] ?? initialLabelTemplates[0];
+  const filtered = useMemo(() => {
+    const q = queryText.trim();
+    if (!q) return products;
+    return products.filter((product) => product.name.includes(q) || product.barcode.includes(q));
+  }, [products, queryText]);
+  const priceClassMap: Record<LabelTemplate["priceSize"], string> = { sm: "text-[56px]", md: "text-[72px]", lg: "text-[92px]" };
 
   return (
     <div className="grid gap-4 pb-20 lg:grid-cols-[0.85fr_1.15fr] lg:pb-0">
       <Card className="rounded-2xl shadow-sm">
-        <CardHeader>
-          <CardTitle>貨卡列印</CardTitle>
-          <CardDescription>從商品搜尋進入，確認名稱與售價後送標籤機。</CardDescription>
-        </CardHeader>
+        <CardHeader><CardTitle>貨卡列印</CardTitle><CardDescription>從商品搜尋進入，確認名稱與售價後送標籤機。</CardDescription></CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex gap-2">
-            <Input placeholder="搜尋商品 / 掃碼" />
-            <Button variant="outline" className="gap-2 rounded-xl">
-              <ScanLine className="h-4 w-4" />掃碼
-            </Button>
-          </div>
-          {products.map((item) => (
-            <ProductRow key={item.barcode} item={item} onSelect={setSelected} />
-          ))}
+          <div className="flex gap-2"><Input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="搜尋商品 / 掃碼" /><Button variant="outline" className="gap-2 rounded-xl"><ScanLine className="h-4 w-4" />掃碼</Button></div>
+          {filtered.map((item) => <ProductRow key={item.barcode} item={item} onSelect={setSelected} />)}
         </CardContent>
       </Card>
-
       <Card className="rounded-2xl shadow-sm">
-        <CardHeader>
-          <CardTitle>4 × 6 cm 貨卡預覽</CardTitle>
-          <CardDescription>這裡之後可以接飛鵝雲列印 API 與模板切換。</CardDescription>
-        </CardHeader>
+        <CardHeader><CardTitle>4 × 6 cm 貨卡預覽</CardTitle><CardDescription>目前使用模板：{activeTemplate?.name ?? "未設定模板"}</CardDescription></CardHeader>
         <CardContent className="space-y-4">
           <motion.div layout>
-            <ReceiptLabelPreview
-              storeName={storeName}
-              product={selected}
-              showSpec={true}
-              showCategory={true}
-              showUpdatedDate={false}
-              priceClassName="text-[92px]"
-            />
+            <ReceiptLabelPreview storeName={storeName} product={selected} showSpec={activeTemplate?.showSpec ?? false} showCategory={activeTemplate?.showCategory ?? true} showUpdatedDate={activeTemplate?.showUpdatedDate ?? false} priceClassName={priceClassMap[activeTemplate?.priceSize ?? "lg"]} />
           </motion.div>
-          <div className="grid grid-cols-2 gap-2">
-            <Button variant="outline" className="rounded-xl">
-              模板 A
-            </Button>
-            <Button variant="outline" className="rounded-xl">
-              模板 B
-            </Button>
-          </div>
-          <div className="rounded-xl border p-3 text-sm">
-            <div className="font-medium">列印前檢查</div>
-            <ul className="mt-2 list-disc space-y-1 pl-4 text-muted-foreground">
-              <li>商品名稱是否正確</li>
-              <li>販售價格是否為最新價格</li>
-              <li>條碼內容是否正確</li>
-              <li>設備是否已連線</li>
-            </ul>
-          </div>
-          <Button className="w-full gap-2 rounded-xl">
-            <Printer className="h-4 w-4" />送出列印
-          </Button>
+          <Button className="w-full gap-2 rounded-xl"><Printer className="h-4 w-4" />送出列印</Button>
         </CardContent>
       </Card>
     </div>
@@ -2080,69 +1178,30 @@ function LabelPrinter({
 
 function ProductPickerModal({
   open,
-  query,
-  setQuery,
+  queryText,
+  setQueryText,
   products,
   onClose,
   onPick,
 }: {
   open: boolean;
-  query: string;
-  setQuery: React.Dispatch<React.SetStateAction<string>>;
+  queryText: string;
+  setQueryText: React.Dispatch<React.SetStateAction<string>>;
   products: Product[];
   onClose: () => void;
   onPick: (product: Product) => void;
 }) {
   if (!open) return null;
-
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-4 lg:items-center">
       <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b p-4">
-          <div>
-            <div className="font-medium">新增商品到批次</div>
-            <div className="text-sm text-muted-foreground">
-              可手動輸入搜尋，也可用掃碼方式帶入商品。
-            </div>
-          </div>
-          <Button variant="outline" className="rounded-xl" onClick={onClose}>
-            關閉
-          </Button>
-        </div>
-
+        <div className="flex items-center justify-between border-b p-4"><div><div className="font-medium">新增商品到批次</div><div className="text-sm text-muted-foreground">可手動輸入搜尋，也可用掃碼方式帶入商品。</div></div><Button variant="outline" className="rounded-xl" onClick={onClose}>關閉</Button></div>
         <div className="space-y-4 p-4">
-          <div className="flex gap-2">
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜尋商品名稱 / 條碼 / 廠商"
-            />
-            <Button variant="outline" className="gap-2 rounded-xl">
-              <ScanLine className="h-4 w-4" />掃碼
-            </Button>
-          </div>
+          <div className="flex gap-2"><Input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="搜尋商品名稱 / 條碼 / 廠商" /><Button variant="outline" className="gap-2 rounded-xl"><ScanLine className="h-4 w-4" />掃碼</Button></div>
           <div className="max-h-[360px] space-y-3 overflow-y-auto pr-1">
             {products.map((product) => (
-              <button
-                key={product.barcode}
-                type="button"
-                onClick={() => onPick(product)}
-                className="w-full rounded-2xl border bg-white p-4 text-left transition hover:shadow-sm"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="font-medium">{product.name}</div>
-                    <div className="text-xs text-muted-foreground">{product.barcode}</div>
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      <Badge variant="secondary">{product.category}</Badge>
-                      <Badge variant="outline">{product.supplier}</Badge>
-                    </div>
-                  </div>
-                  <div className="text-right text-sm">
-                    <div>進價 NT$ {product.cost}</div>
-                    <div className="text-xs text-muted-foreground">庫存 {product.stock}</div>
-                  </div>
-                </div>
+              <button key={product.barcode} type="button" onClick={() => onPick(product)} className="w-full rounded-2xl border bg-white p-4 text-left transition hover:shadow-sm">
+                <div className="flex items-start justify-between gap-4"><div className="space-y-1"><div className="font-medium">{product.name}</div><div className="text-xs text-muted-foreground">{product.barcode}</div></div><div className="text-right text-sm"><div>進價 NT$ {product.cost}</div><div className="text-xs text-muted-foreground">庫存 {product.stock}</div></div></div>
               </button>
             ))}
           </div>
@@ -2154,199 +1213,78 @@ function ProductPickerModal({
 
 function RecordQuery({
   batchRecords,
-  setBatchRecords,
   products,
+  onUpdateBatchRecord,
+  onDeleteBatchRecord,
+  onAddProductToBatch,
 }: {
   batchRecords: BatchRecord[];
-  setBatchRecords: React.Dispatch<React.SetStateAction<BatchRecord[]>>;
   products: Product[];
+  onUpdateBatchRecord: (record: BatchRecord) => Promise<void> | void;
+  onDeleteBatchRecord: (recordId: string, lineIndex: number) => Promise<void> | void;
+  onAddProductToBatch: (recordId: string, product: Product) => Promise<void> | void;
 }) {
-  const [dateQuery, setDateQuery] = useState("2026-06-08");
+  const [dateQuery, setDateQuery] = useState("");
   const [supplierQuery, setSupplierQuery] = useState("");
   const [openId, setOpenId] = useState<string>(batchRecords[0]?.id ?? "");
   const [pickerRecordId, setPickerRecordId] = useState<string | null>(null);
   const [pickerQuery, setPickerQuery] = useState("");
+  const [localRecords, setLocalRecords] = useState<BatchRecord[]>(batchRecords);
 
-  const filtered = useMemo(
-    () => filterBatchRecords(batchRecords, dateQuery, supplierQuery),
-    [batchRecords, dateQuery, supplierQuery]
-  );
+  useEffect(() => {
+    setLocalRecords(batchRecords);
+  }, [batchRecords]);
 
+  const filtered = useMemo(() => filterBatchRecords(localRecords, dateQuery, supplierQuery), [localRecords, dateQuery, supplierQuery]);
   const pickerProducts = useMemo(() => {
     const q = pickerQuery.trim();
     if (!q) return products;
-    return products.filter(
-      (product) =>
-        product.name.includes(q) ||
-        product.barcode.includes(q) ||
-        product.supplier.includes(q)
-    );
+    return products.filter((product) => product.name.includes(q) || product.barcode.includes(q) || product.supplier.includes(q));
   }, [pickerQuery, products]);
 
-  const updateBatchLine = (
-    recordId: string,
-    lineIndex: number,
-    patch: Partial<Pick<BatchLine, "qty" | "price">>
-  ) => {
-    setBatchRecords((prev) =>
-      prev.map((record) => {
-        if (record.id !== recordId) return record;
-        const nextLines = record.lines.map((line, index) => {
-          if (index !== lineIndex) return line;
-          const nextQty = patch.qty ?? line.qty;
-          const nextPrice = patch.price ?? line.price;
-          return {
-            ...line,
-            qty: nextQty,
-            price: nextPrice,
-            amount: calculateAmount(nextQty, nextPrice),
-            edited: true,
-          };
-        });
-        return recalcBatchTotals({ ...record, lines: nextLines });
-      })
-    );
+  const updateBatchLine = (recordId: string, lineIndex: number, patch: Partial<Pick<BatchLine, "qty" | "price">>) => {
+    setLocalRecords((prev) => prev.map((record) => {
+      if (record.id !== recordId) return record;
+      const nextLines = record.lines.map((line, index) => index !== lineIndex ? line : { ...line, qty: patch.qty ?? line.qty, price: patch.price ?? line.price, amount: calculateAmount(patch.qty ?? line.qty, patch.price ?? line.price), edited: true });
+      return recalcBatchTotals({ ...record, lines: nextLines });
+    }));
   };
 
-  const deleteBatchLine = (recordId: string, lineIndex: number) => {
-    setBatchRecords((prev) =>
-      prev
-        .map((record) => {
-          if (record.id !== recordId) return record;
-          const nextLines = record.lines.filter((_, index) => index !== lineIndex);
-          return recalcBatchTotals({ ...record, lines: nextLines });
-        })
-        .filter((record) => record.lines.length > 0)
-    );
+  const removeBatchLine = async (recordId: string, lineIndex: number) => {
+    setLocalRecords((prev) => prev.map((record) => {
+      if (record.id !== recordId) return record;
+      return recalcBatchTotals({ ...record, lines: record.lines.filter((_, index) => index !== lineIndex) });
+    }).filter((record) => record.lines.length > 0));
+    await onDeleteBatchRecord(recordId, lineIndex);
   };
 
-  const addBatchLine = (recordId: string, product: Product) => {
-    setBatchRecords((prev) =>
-      prev.map((record) => {
-        if (record.id !== recordId) return record;
-        const nextLine: BatchLine = {
-          barcode: product.barcode,
-          product: product.name,
-          supplier: product.supplier,
-          qty: 1,
-          price: product.cost,
-          amount: calculateAmount(1, product.cost),
-          edited: true,
-        };
-        return recalcBatchTotals({ ...record, lines: [...record.lines, nextLine] });
-      })
-    );
-    setPickerRecordId(null);
-    setPickerQuery("");
-  };
-
-  const saveBatchChanges = (recordId: string) => {
-    setBatchRecords((prev) =>
-      prev.map((record) => {
-        if (record.id !== recordId) return record;
-        return {
-          ...recalcBatchTotals(record),
-          lines: record.lines.map((line) => ({ ...line, edited: false })),
-        };
-      })
-    );
+  const saveBatchChanges = async (recordId: string) => {
+    const target = localRecords.find((record) => record.id === recordId);
+    if (!target) return;
+    await onUpdateBatchRecord({ ...target, lines: target.lines.map((line) => ({ ...line, edited: false })) });
   };
 
   return (
     <div className="mx-auto w-full max-w-[1040px] min-w-0 space-y-4 pb-20 lg:pb-0">
       <Card className="min-w-0 rounded-2xl shadow-sm">
-        <CardHeader>
-          <CardTitle>批次進退貨紀錄</CardTitle>
-          <CardDescription>
-            日期查詢改為單日查詢，預設今日；展開後以商品清單表格編輯數量與單價。
-          </CardDescription>
-        </CardHeader>
+        <CardHeader><CardTitle>批次進退貨紀錄</CardTitle><CardDescription>可查詢、編輯、刪除、補加商品，並同步寫回 Firebase。</CardDescription></CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-2 md:grid-cols-3">
-            <Input
-              type="date"
-              value={dateQuery}
-              onChange={(e) => setDateQuery(e.target.value)}
-              placeholder="選擇日期"
-            />
-            <Input
-              value={supplierQuery}
-              onChange={(e) => setSupplierQuery(e.target.value)}
-              placeholder="廠商名稱"
-            />
-            <Button variant="outline" className="rounded-xl">
-              匯出對帳資料
-            </Button>
-          </div>
-
+          <div className="grid gap-2 md:grid-cols-3"><Input type="date" value={dateQuery} onChange={(e) => setDateQuery(e.target.value)} /><Input value={supplierQuery} onChange={(e) => setSupplierQuery(e.target.value)} placeholder="廠商名稱" /><Button variant="outline" className="rounded-xl">匯出對帳資料</Button></div>
           <div className="space-y-3">
             {filtered.map((record) => {
               const isOpen = openId === record.id;
               return (
                 <div key={record.id} className="rounded-2xl border bg-white">
-                  <button
-                    type="button"
-                    onClick={() => setOpenId(isOpen ? "" : record.id)}
-                    className="flex w-full items-center justify-between gap-3 p-4 text-left"
-                  >
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="outline">批次</Badge>
-                        <span className="font-medium">{record.id}</span>
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        {record.date} ・ {record.supplier}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right text-sm">
-                        <div>{record.itemCount} 項商品</div>
-                        <div className="font-semibold">NT$ {record.totalAmount}</div>
-                      </div>
-                      {isOpen ? (
-                        <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </div>
+                  <button type="button" onClick={() => setOpenId(isOpen ? "" : record.id)} className="flex w-full items-center justify-between gap-3 p-4 text-left">
+                    <div className="space-y-2"><div className="flex flex-wrap items-center gap-2"><Badge variant="outline">批次</Badge><span className="font-medium">{record.id}</span></div><div className="text-sm text-muted-foreground">{record.date} ・ {record.supplier}</div></div>
+                    <div className="text-right text-sm"><div>{record.itemCount} 項商品</div><div className="font-semibold">NT$ {record.totalAmount}</div></div>
                   </button>
-
                   {isOpen ? (
                     <div className="min-w-0 border-t px-4 pb-4 pt-3">
-                      <BatchTable
-                        lines={record.lines}
-                        editable={true}
-                        onQtyChange={(index, value) =>
-                          updateBatchLine(record.id, index, { qty: value })
-                        }
-                        onPriceChange={(index, value) =>
-                          updateBatchLine(record.id, index, { price: value })
-                        }
-                        onDelete={(index) => deleteBatchLine(record.id, index)}
-                      />
-                      <div className="px-2 pt-2 text-[11px] text-muted-foreground">
-                        可左右滑動查看完整欄位
-                      </div>
-
-                      <div className="mt-3 flex items-center justify-between rounded-xl border p-3 text-sm">
-                        <div className="text-muted-foreground">本批總金額</div>
-                        <div className="text-lg font-semibold">NT$ {record.totalAmount}</div>
-                      </div>
-
+                      <BatchTable lines={record.lines} editable={true} onQtyChange={(index, value) => updateBatchLine(record.id, index, { qty: value })} onPriceChange={(index, value) => updateBatchLine(record.id, index, { price: value })} onDelete={(index) => removeBatchLine(record.id, index)} />
                       <div className="mt-3 grid grid-cols-2 gap-2">
-                        <Button
-                          variant="outline"
-                          className="gap-2 rounded-xl"
-                          onClick={() => {
-                            setPickerRecordId(record.id);
-                            setPickerQuery("");
-                          }}
-                        >
-                          <Plus className="h-4 w-4" />新增商品
-                        </Button>
-                        <Button className="rounded-xl" onClick={() => saveBatchChanges(record.id)}>
-                          儲存修改
-                        </Button>
+                        <Button variant="outline" className="gap-2 rounded-xl" onClick={() => { setPickerRecordId(record.id); setPickerQuery(""); }}><Plus className="h-4 w-4" />新增商品</Button>
+                        <Button className="rounded-xl" onClick={() => saveBatchChanges(record.id)}>儲存修改</Button>
                       </div>
                     </div>
                   ) : null}
@@ -2356,262 +1294,84 @@ function RecordQuery({
           </div>
         </CardContent>
       </Card>
-
-      <ProductPickerModal
-        open={pickerRecordId !== null}
-        query={pickerQuery}
-        setQuery={setPickerQuery}
-        products={pickerProducts}
-        onClose={() => setPickerRecordId(null)}
-        onPick={(product) => {
-          if (!pickerRecordId) return;
-          addBatchLine(pickerRecordId, product);
-        }}
-      />
+      <ProductPickerModal open={pickerRecordId !== null} queryText={pickerQuery} setQueryText={setPickerQuery} products={pickerProducts} onClose={() => setPickerRecordId(null)} onPick={async (product) => { if (!pickerRecordId) return; await onAddProductToBatch(pickerRecordId, product); setPickerRecordId(null); }} />
     </div>
   );
 }
 
 function SupplierManager({
   suppliers,
-  setSuppliers,
+  onCreateSupplier,
+  onSaveSupplier,
+  onDeleteSupplier,
+  onImportSuppliers,
 }: {
   suppliers: Supplier[];
-  setSuppliers: React.Dispatch<React.SetStateAction<Supplier[]>>;
+  onCreateSupplier: () => Promise<void> | void;
+  onSaveSupplier: (supplier: Supplier) => Promise<void> | void;
+  onDeleteSupplier: (supplierId: string) => Promise<void> | void;
+  onImportSuppliers: (suppliers: Supplier[]) => Promise<void> | void;
 }) {
-  const [query, setQuery] = useState("");
+  const [queryText, setQueryText] = useState("");
   const [openId, setOpenId] = useState<string>(suppliers[0]?.id ?? "");
-  const [importNotice, setImportNotice] = useState<string>("");
+  const [draftSuppliers, setDraftSuppliers] = useState<Supplier[]>(suppliers);
+
+  useEffect(() => {
+    setDraftSuppliers(suppliers);
+  }, [suppliers]);
 
   const filtered = useMemo(() => {
-    const q = query.trim();
-    if (!q) return suppliers;
-    return suppliers.filter(
-      (s) =>
-        s.name.includes(q) ||
-        s.code.includes(q) ||
-        s.contact.includes(q) ||
-        s.phone.includes(q)
-    );
-  }, [suppliers, query]);
-
-  const updateSupplier = (supplierId: string, patch: Partial<Supplier>) =>
-    setSuppliers((prev) =>
-      prev.map((item) => (item.id === supplierId ? { ...item, ...patch } : item))
-    );
-
-  const createSupplier = () => {
-    const id = `sup-${Date.now()}`;
-    const next: Supplier = {
-      id,
-      code: `V${String(suppliers.length + 1).padStart(3, "0")}`,
-      name: "新廠商",
-      contact: "",
-      phone: "",
-      note: "",
-      active: true,
-    };
-    setSuppliers((prev) => [next, ...prev]);
-    setOpenId(id);
-  };
-
-  const deleteSupplier = (supplierId: string) => {
-    const next = suppliers.filter((item) => item.id !== supplierId);
-    setSuppliers(next);
-    setOpenId((current) => (current === supplierId ? next[0]?.id ?? "" : current));
-  };
+    const q = queryText.trim();
+    if (!q) return draftSuppliers;
+    return draftSuppliers.filter((s) => s.name.includes(q) || s.code.includes(q) || s.contact.includes(q) || s.phone.includes(q));
+  }, [draftSuppliers, queryText]);
 
   const exportSuppliers = () => {
-    const headers = ["code", "name", "contact", "phone", "note", "active"];
-    const rows = suppliers.map((supplier) => [
-      supplier.code,
-      supplier.name,
-      supplier.contact,
-      supplier.phone,
-      supplier.note,
-      supplier.active ? "TRUE" : "FALSE",
+    const csv = makeCsv([
+      ["code", "name", "contact", "phone", "note", "active"],
+      ...draftSuppliers.map((supplier) => [supplier.code, supplier.name, supplier.contact, supplier.phone, supplier.note, supplier.active]),
     ]);
-    const csv = [headers, ...rows]
-      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "suppliers-export.csv";
-    link.click();
-    URL.revokeObjectURL(url);
-    setImportNotice("已匯出廠商資料 CSV");
+    downloadCsv("suppliers-export.csv", csv);
   };
 
-  const importSuppliers = (file: File | null) => {
+  const importSuppliers = async (file: File | null) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = String(reader.result ?? "").trim();
-      if (!text) return setImportNotice("匯入失敗：檔案內容為空");
-      const lines = text.replace(/^\ufeff/, "").split(/\r?\n/).filter(Boolean);
-      if (lines.length <= 1) {
-        return setImportNotice("匯入失敗：至少需要標題列與一筆資料");
-      }
-      const parseCell = (cell: string) =>
-        cell.replace(/^"|"$/g, "").replace(/""/g, '"').trim();
-      const rows = lines.slice(1).map((line, index) => {
-        const parts = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(parseCell);
-        return {
-          id: `sup-import-${Date.now()}-${index}`,
-          code: parts[0] || `V${String(index + 1).padStart(3, "0")}`,
-          name: parts[1] || "未命名廠商",
-          contact: parts[2] || "",
-          phone: parts[3] || "",
-          note: parts[4] || "",
-          active: (parts[5] || "TRUE").toUpperCase() !== "FALSE",
-        } as Supplier;
-      });
-      setSuppliers(rows);
-      setOpenId(rows[0]?.id ?? "");
-      setImportNotice(`已匯入 ${rows.length} 筆廠商資料`);
-    };
-    reader.readAsText(file, "utf-8");
+    const rows = await parseCsvFile(file);
+    const payload = rows.map((parts, index) => ({
+      id: `import-${Date.now()}-${index}`,
+      code: parts[0] || `V${String(index + 1).padStart(3, "0")}`,
+      name: parts[1] || "未命名廠商",
+      contact: parts[2] || "",
+      phone: parts[3] || "",
+      note: parts[4] || "",
+      active: (parts[5] || "TRUE").toUpperCase() !== "FALSE",
+    }));
+    await onImportSuppliers(payload);
   };
+
+  const updateLocalSupplier = (supplierId: string, patch: Partial<Supplier>) => setDraftSuppliers((prev) => prev.map((item) => item.id === supplierId ? { ...item, ...patch } : item));
 
   return (
     <Card className="rounded-2xl shadow-sm">
-      <CardHeader>
-        <CardTitle>廠商資料</CardTitle>
-        <CardDescription>
-          廠商清單可直接展開詳細資料，不另外拆成第二張詳情卡。
-        </CardDescription>
-      </CardHeader>
+      <CardHeader><CardTitle>廠商資料</CardTitle><CardDescription>新增 / 修改 / 刪除 / 匯入 / 匯出都已接 Firebase。</CardDescription></CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-wrap gap-2">
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜尋廠商名稱 / 編號 / 聯絡人 / 電話"
-            className="min-w-[220px] flex-1"
-          />
-          <Button variant="outline" className="gap-2 rounded-xl" onClick={exportSuppliers}>
-            <Download className="h-4 w-4" />匯出
-          </Button>
-          <label className="inline-flex">
-            <input
-              type="file"
-              accept=".csv"
-              className="hidden"
-              onChange={(e) => {
-                importSuppliers(e.target.files?.[0] ?? null);
-                e.currentTarget.value = "";
-              }}
-            />
-            <span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer">
-              <Upload className="h-4 w-4" />匯入
-            </span>
-          </label>
-          <Button className="gap-2 rounded-xl" onClick={createSupplier}>
-            <Plus className="h-4 w-4" />新增廠商
-          </Button>
-        </div>
-
-        {importNotice ? (
-          <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
-            {importNotice}
-          </div>
-        ) : null}
-
+        <div className="flex flex-wrap gap-2"><Input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="搜尋廠商名稱 / 編號 / 聯絡人 / 電話" className="min-w-[220px] flex-1" /><Button variant="outline" className="gap-2 rounded-xl" onClick={exportSuppliers}><Download className="h-4 w-4" />匯出</Button><label className="inline-flex"><input type="file" accept=".csv" className="hidden" onChange={(e) => { importSuppliers(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} /><span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />匯入</span></label><Button className="gap-2 rounded-xl" onClick={() => onCreateSupplier()}><Plus className="h-4 w-4" />新增廠商</Button></div>
         <div className="space-y-3">
           {filtered.map((supplier) => {
             const isOpen = openId === supplier.id;
             return (
               <div key={supplier.id} className="rounded-2xl border bg-white">
-                <button
-                  type="button"
-                  onClick={() => setOpenId(isOpen ? "" : supplier.id)}
-                  className="flex w-full items-center justify-between gap-4 p-4 text-left"
-                >
-                  <div className="space-y-1">
-                    <div className="font-medium">{supplier.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {supplier.code} ・ {supplier.contact || "未填聯絡人"} ・ {supplier.phone || "未填電話"}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Badge variant={supplier.active ? "default" : "secondary"}>
-                      {supplier.active ? "啟用中" : "停用"}
-                    </Badge>
-                    {isOpen ? (
-                      <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </div>
-                </button>
-
+                <button type="button" onClick={() => setOpenId(isOpen ? "" : supplier.id)} className="flex w-full items-center justify-between gap-4 p-4 text-left"><div className="space-y-1"><div className="font-medium">{supplier.name}</div><div className="text-xs text-muted-foreground">{supplier.code} ・ {supplier.contact || "未填聯絡人"} ・ {supplier.phone || "未填電話"}</div></div><div className="flex items-center gap-3"><Badge variant={supplier.active ? "default" : "secondary"}>{supplier.active ? "啟用中" : "停用"}</Badge>{isOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}</div></button>
                 {isOpen ? (
                   <div className="border-t px-4 pb-4 pt-3">
                     <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div className="rounded-xl border p-3">
-                        <div className="text-xs text-muted-foreground">廠商編號</div>
-                        <Input
-                          value={supplier.code}
-                          onChange={(e) => updateSupplier(supplier.id, { code: e.target.value })}
-                          className="mt-2"
-                        />
-                      </div>
-                      <div className="rounded-xl border p-3">
-                        <div className="text-xs text-muted-foreground">廠商名稱</div>
-                        <Input
-                          value={supplier.name}
-                          onChange={(e) => updateSupplier(supplier.id, { name: e.target.value })}
-                          className="mt-2"
-                        />
-                      </div>
-                      <div className="rounded-xl border p-3">
-                        <div className="text-xs text-muted-foreground">聯絡人</div>
-                        <Input
-                          value={supplier.contact}
-                          onChange={(e) => updateSupplier(supplier.id, { contact: e.target.value })}
-                          className="mt-2"
-                        />
-                      </div>
-                      <div className="rounded-xl border p-3">
-                        <div className="text-xs text-muted-foreground">電話</div>
-                        <Input
-                          value={supplier.phone}
-                          onChange={(e) => updateSupplier(supplier.id, { phone: e.target.value })}
-                          className="mt-2"
-                        />
-                      </div>
-                      <div className="col-span-2 rounded-xl border p-3">
-                        <div className="text-xs text-muted-foreground">備註</div>
-                        <Input
-                          value={supplier.note}
-                          onChange={(e) => updateSupplier(supplier.id, { note: e.target.value })}
-                          className="mt-2"
-                        />
-                      </div>
+                      <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">廠商編號</div><Input value={supplier.code} onChange={(e) => updateLocalSupplier(supplier.id, { code: e.target.value })} className="mt-2" /></div>
+                      <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">廠商名稱</div><Input value={supplier.name} onChange={(e) => updateLocalSupplier(supplier.id, { name: e.target.value })} className="mt-2" /></div>
+                      <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">聯絡人</div><Input value={supplier.contact} onChange={(e) => updateLocalSupplier(supplier.id, { contact: e.target.value })} className="mt-2" /></div>
+                      <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">電話</div><Input value={supplier.phone} onChange={(e) => updateLocalSupplier(supplier.id, { phone: e.target.value })} className="mt-2" /></div>
+                      <div className="col-span-2 rounded-xl border p-3"><div className="text-xs text-muted-foreground">備註</div><Input value={supplier.note} onChange={(e) => updateLocalSupplier(supplier.id, { note: e.target.value })} className="mt-2" /></div>
                     </div>
-
-                    <div className="mt-3 grid grid-cols-3 gap-2">
-                      <Button
-                        variant="outline"
-                        className="gap-2 rounded-xl"
-                        onClick={() => updateSupplier(supplier.id, { active: !supplier.active })}
-                      >
-                        <CheckCircle2 className="h-4 w-4" />
-                        {supplier.active ? "停用" : "啟用"}
-                      </Button>
-                      <Button variant="outline" className="gap-2 rounded-xl">
-                        <Pencil className="h-4 w-4" />修改完成
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="gap-2 rounded-xl"
-                        onClick={() => deleteSupplier(supplier.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />刪除
-                      </Button>
-                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2"><Button variant="outline" className="gap-2 rounded-xl" onClick={() => updateLocalSupplier(supplier.id, { active: !supplier.active })}><CheckCircle2 className="h-4 w-4" />{supplier.active ? "停用" : "啟用"}</Button><Button variant="outline" className="gap-2 rounded-xl" onClick={() => onSaveSupplier(draftSuppliers.find((item) => item.id === supplier.id) ?? supplier)}><Pencil className="h-4 w-4" />修改完成</Button><Button variant="outline" className="gap-2 rounded-xl" onClick={() => onDeleteSupplier(supplier.id)}><Trash2 className="h-4 w-4" />刪除</Button></div>
                   </div>
                 ) : null}
               </div>
@@ -2625,231 +1385,54 @@ function SupplierManager({
 
 function LabelTemplateManager({
   templates,
-  setTemplates,
   sampleProduct,
   storeName,
+  onCreateTemplate,
+  onSaveTemplate,
+  onDeleteTemplate,
+  onSetActiveTemplate,
 }: {
   templates: LabelTemplate[];
-  setTemplates: React.Dispatch<React.SetStateAction<LabelTemplate[]>>;
   sampleProduct: Product;
   storeName: string;
+  onCreateTemplate: () => Promise<void> | void;
+  onSaveTemplate: (template: LabelTemplate) => Promise<void> | void;
+  onDeleteTemplate: (templateId: string) => Promise<void> | void;
+  onSetActiveTemplate: (templateId: string) => Promise<void> | void;
 }) {
   const [openId, setOpenId] = useState<string>(templates[0]?.id ?? "");
-
-  const setActiveTemplate = (templateId: string) =>
-    setTemplates((prev) =>
-      prev.map((item) => ({
-        ...item,
-        active: item.id === templateId,
-      }))
-    );
-
-  const updateTemplate = (templateId: string, patch: Partial<LabelTemplate>) =>
-    setTemplates((prev) =>
-      prev.map((item) => (item.id === templateId ? { ...item, ...patch } : item))
-    );
-
-  const createTemplate = () => {
-    const id = `tpl-${Date.now()}`;
-    const next: LabelTemplate = {
-      id,
-      name: "新模板",
-      paperSize: "4 × 6 cm",
-      showCategory: true,
-      showBarcode: true,
-      showSpec: false,
-      showUpdatedDate: false,
-      priceSize: "md",
-      active: false,
-    };
-    setTemplates((prev) => [next, ...prev]);
-    setOpenId(id);
-  };
-
-  const deleteTemplate = (templateId: string) => {
-    setTemplates((prev) => {
-      const next = prev.filter((item) => item.id !== templateId);
-      return normalizeTemplates(next.length === 0 ? prev : next);
-    });
-    setOpenId((current) => (current === templateId ? "" : current));
-  };
-
-  const priceClassMap: Record<LabelTemplate["priceSize"], string> = {
-    sm: "text-[56px]",
-    md: "text-[72px]",
-    lg: "text-[92px]",
-  };
+  const [draftTemplates, setDraftTemplates] = useState<LabelTemplate[]>(templates);
+  useEffect(() => setDraftTemplates(templates), [templates]);
+  const priceClassMap: Record<LabelTemplate["priceSize"], string> = { sm: "text-[56px]", md: "text-[72px]", lg: "text-[92px]" };
 
   return (
     <Card className="rounded-2xl shadow-sm">
-      <CardHeader>
-        <CardTitle>貨卡模板設定</CardTitle>
-        <CardDescription>
-          管理 4 × 6 cm 貨卡模板，設定要顯示的欄位與價格字級。
-        </CardDescription>
-      </CardHeader>
+      <CardHeader><CardTitle>貨卡模板設定</CardTitle><CardDescription>新增 / 修改 / 刪除 / 啟用都已接 Firebase。</CardDescription></CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex justify-end">
-          <Button className="gap-2 rounded-xl" onClick={createTemplate}>
-            <Plus className="h-4 w-4" />新增模板
-          </Button>
-        </div>
-
+        <div className="flex justify-end"><Button className="gap-2 rounded-xl" onClick={() => onCreateTemplate()}><Plus className="h-4 w-4" />新增模板</Button></div>
         <div className="space-y-3">
-          {templates.map((template) => {
+          {draftTemplates.map((template) => {
             const isOpen = openId === template.id;
+            const draft = draftTemplates.find((item) => item.id === template.id) ?? template;
             return (
               <div key={template.id} className="rounded-2xl border bg-white">
-                <button
-                  type="button"
-                  onClick={() => setOpenId(isOpen ? "" : template.id)}
-                  className="flex w-full items-center justify-between gap-4 p-4 text-left"
-                >
-                  <div className="space-y-1">
-                    <div className="font-medium">{template.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {normalizeStoreName(storeName)}
-                    </div>
-                    <div className="mt-1 text-[11px] text-muted-foreground">
-                      {template.paperSize}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Badge variant={template.active ? "default" : "secondary"}>
-                      {template.active ? "使用中" : "未啟用"}
-                    </Badge>
-                    {isOpen ? (
-                      <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </div>
-                </button>
-
+                <button type="button" onClick={() => setOpenId(isOpen ? "" : template.id)} className="flex w-full items-center justify-between gap-4 p-4 text-left"><div className="space-y-1"><div className="font-medium">{template.name}</div><div className="text-xs text-muted-foreground">{template.paperSize}</div></div><div className="flex items-center gap-3"><Badge variant={template.active ? "default" : "secondary"}>{template.active ? "使用中" : "未啟用"}</Badge>{isOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}</div></button>
                 {isOpen ? (
                   <div className="border-t px-4 pb-4 pt-3">
                     <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
                       <div className="space-y-3">
-                        <div className="rounded-xl border p-3">
-                          <div className="text-xs text-muted-foreground">模板名稱</div>
-                          <Input
-                            value={template.name}
-                            onChange={(e) => updateTemplate(template.id, { name: e.target.value })}
-                            className="mt-2"
-                          />
-                        </div>
-                        <div className="rounded-xl border p-3">
-                          <div className="text-xs text-muted-foreground">紙張尺寸</div>
-                          <Input
-                            value={template.paperSize}
-                            onChange={(e) =>
-                              updateTemplate(template.id, { paperSize: e.target.value })
-                            }
-                            className="mt-2"
-                          />
-                        </div>
-
+                        <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">模板名稱</div><Input value={draft.name} onChange={(e) => setDraftTemplates((prev) => prev.map((item) => item.id === template.id ? { ...item, name: e.target.value } : item))} className="mt-2" /></div>
+                        <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">紙張尺寸</div><Input value={draft.paperSize} onChange={(e) => setDraftTemplates((prev) => prev.map((item) => item.id === template.id ? { ...item, paperSize: e.target.value } : item))} className="mt-2" /></div>
                         <div className="rounded-xl border p-3 space-y-3 text-sm">
-                          <div className="font-medium">顯示欄位</div>
-                          <label className="flex items-center justify-between gap-3">
-                            <span>顯示分類</span>
-                            <input
-                              type="checkbox"
-                              checked={template.showCategory}
-                              onChange={() =>
-                                updateTemplate(template.id, {
-                                  showCategory: !template.showCategory,
-                                })
-                              }
-                            />
-                          </label>
-                          <label className="flex items-center justify-between gap-3">
-                            <span>顯示條碼</span>
-                            <input
-                              type="checkbox"
-                              checked={template.showBarcode}
-                              onChange={() =>
-                                updateTemplate(template.id, {
-                                  showBarcode: !template.showBarcode,
-                                })
-                              }
-                            />
-                          </label>
-                          <label className="flex items-center justify-between gap-3">
-                            <span>顯示規格</span>
-                            <input
-                              type="checkbox"
-                              checked={template.showSpec}
-                              onChange={() =>
-                                updateTemplate(template.id, {
-                                  showSpec: !template.showSpec,
-                                })
-                              }
-                            />
-                          </label>
-                          <label className="flex items-center justify-between gap-3">
-                            <span>顯示更新日期</span>
-                            <input
-                              type="checkbox"
-                              checked={template.showUpdatedDate}
-                              onChange={() =>
-                                updateTemplate(template.id, {
-                                  showUpdatedDate: !template.showUpdatedDate,
-                                })
-                              }
-                            />
-                          </label>
+                          <label className="flex items-center justify-between"><span>顯示分類</span><input type="checkbox" checked={draft.showCategory} onChange={() => setDraftTemplates((prev) => prev.map((item) => item.id === template.id ? { ...item, showCategory: !item.showCategory } : item))} /></label>
+                          <label className="flex items-center justify-between"><span>顯示條碼</span><input type="checkbox" checked={draft.showBarcode} onChange={() => setDraftTemplates((prev) => prev.map((item) => item.id === template.id ? { ...item, showBarcode: !item.showBarcode } : item))} /></label>
+                          <label className="flex items-center justify-between"><span>顯示規格</span><input type="checkbox" checked={draft.showSpec} onChange={() => setDraftTemplates((prev) => prev.map((item) => item.id === template.id ? { ...item, showSpec: !item.showSpec } : item))} /></label>
+                          <label className="flex items-center justify-between"><span>顯示更新日期</span><input type="checkbox" checked={draft.showUpdatedDate} onChange={() => setDraftTemplates((prev) => prev.map((item) => item.id === template.id ? { ...item, showUpdatedDate: !item.showUpdatedDate } : item))} /></label>
                         </div>
-
-                        <div className="rounded-xl border p-3 space-y-2 text-sm">
-                          <div className="font-medium">價格字級</div>
-                          <div className="grid grid-cols-3 gap-2">
-                            {(["sm", "md", "lg"] as const).map((size) => (
-                              <Button
-                                key={size}
-                                type="button"
-                                variant={template.priceSize === size ? "default" : "outline"}
-                                className="rounded-xl"
-                                onClick={() => updateTemplate(template.id, { priceSize: size })}
-                              >
-                                {size.toUpperCase()}
-                              </Button>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-2">
-                          <Button
-                            variant="outline"
-                            className="rounded-xl"
-                            onClick={() => setActiveTemplate(template.id)}
-                          >
-                            設為使用中
-                          </Button>
-                          <Button variant="outline" className="rounded-xl">
-                            儲存模板
-                          </Button>
-                          <Button
-                            variant="outline"
-                            className="rounded-xl"
-                            onClick={() => deleteTemplate(template.id)}
-                          >
-                            刪除模板
-                          </Button>
-                        </div>
+                        <div className="grid grid-cols-3 gap-2">{(["sm", "md", "lg"] as const).map((size) => <Button key={size} type="button" variant={draft.priceSize === size ? "default" : "outline"} className="rounded-xl" onClick={() => setDraftTemplates((prev) => prev.map((item) => item.id === template.id ? { ...item, priceSize: size } : item))}>{size.toUpperCase()}</Button>)}</div>
+                        <div className="grid grid-cols-3 gap-2"><Button variant="outline" className="rounded-xl" onClick={() => onSetActiveTemplate(template.id)}>設為使用中</Button><Button variant="outline" className="rounded-xl" onClick={() => onSaveTemplate(draft)}>儲存模板</Button><Button variant="outline" className="rounded-xl" onClick={() => onDeleteTemplate(template.id)}>刪除模板</Button></div>
                       </div>
-
-                      <div className="space-y-3">
-                        <div className="text-sm font-medium">預覽</div>
-                        <ReceiptLabelPreview
-                          storeName={storeName}
-                          product={sampleProduct}
-                          showSpec={template.showSpec}
-                          showCategory={template.showCategory}
-                          showUpdatedDate={template.showUpdatedDate}
-                          priceClassName={priceClassMap[template.priceSize]}
-                        />
-                      </div>
+                      <div className="space-y-3"><div className="text-sm font-medium">預覽</div><ReceiptLabelPreview storeName={storeName} product={sampleProduct} showSpec={draft.showSpec} showCategory={draft.showCategory} showUpdatedDate={draft.showUpdatedDate} priceClassName={priceClassMap[draft.priceSize]} /></div>
                     </div>
                   </div>
                 ) : null}
@@ -2863,41 +1446,22 @@ function LabelTemplateManager({
 }
 
 function SystemSettingsPanel({
-  storeName,
-  setStoreName,
+  settings,
+  onSaveSettings,
 }: {
-  storeName: string;
-  setStoreName: React.Dispatch<React.SetStateAction<string>>;
+  settings: SystemSettings;
+  onSaveSettings: (settings: SystemSettings) => Promise<void> | void;
 }) {
-  const [draftStoreName, setDraftStoreName] = useState(storeName);
-  React.useEffect(() => setDraftStoreName(storeName), [storeName]);
-
+  const [draft, setDraft] = useState<SystemSettings>(settings);
+  useEffect(() => setDraft(settings), [settings]);
   return (
     <Card className="rounded-2xl shadow-sm">
-      <CardHeader>
-        <CardTitle>系統設定</CardTitle>
-        <CardDescription>
-          設定門店名稱，會同步顯示在系統名稱上方副標與貨卡預覽。
-        </CardDescription>
-      </CardHeader>
+      <CardHeader><CardTitle>系統設定</CardTitle><CardDescription>門店名稱與飛鵝帳號參數已接 Firebase。</CardDescription></CardHeader>
       <CardContent className="space-y-4">
-        <div className="rounded-xl border p-3">
-          <div className="text-xs text-muted-foreground">門店名稱</div>
-          <Input
-            value={draftStoreName}
-            onChange={(e) => setDraftStoreName(e.target.value)}
-            placeholder="例如：嘉義門市"
-            className="mt-2"
-          />
-        </div>
-        <div className="flex justify-end">
-          <Button
-            className="rounded-xl"
-            onClick={() => setStoreName(normalizeStoreName(draftStoreName))}
-          >
-            儲存
-          </Button>
-        </div>
+        <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">門店名稱</div><Input value={draft.storeName} onChange={(e) => setDraft((prev) => ({ ...prev, storeName: e.target.value }))} className="mt-2" /></div>
+        <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">飛鵝 user</div><Input value={draft.feieUser} onChange={(e) => setDraft((prev) => ({ ...prev, feieUser: e.target.value }))} className="mt-2" /></div>
+        <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">飛鵝 UKEY</div><Input type="password" value={draft.feieUkey} onChange={(e) => setDraft((prev) => ({ ...prev, feieUkey: e.target.value }))} className="mt-2" /></div>
+        <div className="flex justify-end"><Button className="rounded-xl" onClick={() => onSaveSettings({ ...draft, storeName: normalizeStoreName(draft.storeName) })}>儲存</Button></div>
       </CardContent>
     </Card>
   );
@@ -2905,295 +1469,46 @@ function SystemSettingsPanel({
 
 function PrinterDeviceManager({
   devices,
-  setDevices,
-  feieUser,
-  setFeieUser,
-  feieUkey,
-  setFeieUkey,
+  onCreateDevice,
+  onSaveDevice,
+  onDeleteDevice,
+  onSetDefaultDevice,
+  onTestDevice,
 }: {
   devices: PrinterDevice[];
-  setDevices: React.Dispatch<React.SetStateAction<PrinterDevice[]>>;
-  feieUser: string;
-  setFeieUser: React.Dispatch<React.SetStateAction<string>>;
-  feieUkey: string;
-  setFeieUkey: React.Dispatch<React.SetStateAction<string>>;
+  onCreateDevice: () => Promise<void> | void;
+  onSaveDevice: (device: PrinterDevice) => Promise<void> | void;
+  onDeleteDevice: (deviceId: string) => Promise<void> | void;
+  onSetDefaultDevice: (deviceId: string) => Promise<void> | void;
+  onTestDevice: (deviceId: string) => Promise<void> | void;
 }) {
   const [openId, setOpenId] = useState<string>(devices[0]?.id ?? "");
-  const [draftFeieUser, setDraftFeieUser] = useState(feieUser);
-  const [draftFeieUkey, setDraftFeieUkey] = useState(feieUkey);
-
-  React.useEffect(() => setDraftFeieUser(feieUser), [feieUser]);
-  React.useEffect(() => setDraftFeieUkey(feieUkey), [feieUkey]);
-
-  const updateDevice = (deviceId: string, patch: Partial<PrinterDevice>) =>
-    setDevices((prev) =>
-      prev.map((item) => (item.id === deviceId ? { ...item, ...patch } : item))
-    );
-
-  const createDevice = () => {
-    const id = `printer-${Date.now()}`;
-    const next: PrinterDevice = {
-      id,
-      name: "新設備",
-      brand: "",
-      model: "",
-      usage: "貨卡",
-      connectionType: "Wi-Fi",
-      ipAddress: "",
-      port: "9100",
-      deviceId: "",
-      paperWidth: "57mm",
-      cutterEnabled: true,
-      isDefault: false,
-      status: "未連線",
-    };
-    setDevices((prev) => [next, ...prev]);
-    setOpenId(id);
-  };
-
-  const deleteDevice = (deviceId: string) => {
-    setDevices((prev) => {
-      const next = prev.filter((item) => item.id !== deviceId);
-      return normalizePrinterDevices(next.length === 0 ? prev : next);
-    });
-    setOpenId((current) => (current === deviceId ? "" : current));
-  };
-
-  const setDefaultDevice = (deviceId: string) =>
-    setDevices((prev) => prev.map((item) => ({ ...item, isDefault: item.id === deviceId })));
-
-  const testPrintDevice = (deviceId: string) =>
-    setDevices((prev) =>
-      prev.map((item) => (item.id === deviceId ? { ...item, status: "已連線" } : item))
-    );
+  const [draftDevices, setDraftDevices] = useState<PrinterDevice[]>(devices);
+  useEffect(() => setDraftDevices(devices), [devices]);
 
   return (
     <Card className="rounded-2xl shadow-sm">
-      <CardHeader>
-        <CardTitle>列印設備設定</CardTitle>
-        <CardDescription>
-          設定飛鵝帳號參數、管理設備 SN、預設設備與測試列印。
-        </CardDescription>
-      </CardHeader>
+      <CardHeader><CardTitle>列印設備設定</CardTitle><CardDescription>新增 / 修改 / 刪除 / 預設 / 測試都已接 Firebase。</CardDescription></CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 rounded-2xl border p-4 md:grid-cols-2">
-          <div>
-            <div className="text-xs text-muted-foreground">飛鵝 user</div>
-            <Input
-              value={draftFeieUser}
-              onChange={(e) => setDraftFeieUser(e.target.value)}
-              placeholder="飛鵝後台註冊用戶名"
-              className="mt-2"
-            />
-          </div>
-          <div>
-            <div className="text-xs text-muted-foreground">飛鵝 UKEY</div>
-            <Input
-              type="password"
-              value={draftFeieUkey}
-              onChange={(e) => setDraftFeieUkey(e.target.value)}
-              placeholder="UKEY"
-              className="mt-2"
-            />
-          </div>
-          <div className="md:col-span-2 flex justify-end">
-            <Button
-              variant="outline"
-              className="rounded-xl"
-              onClick={() => {
-                setFeieUser(draftFeieUser.trim());
-                setFeieUkey(draftFeieUkey.trim());
-              }}
-            >
-              儲存帳號設定
-            </Button>
-          </div>
-        </div>
-
-        <div className="flex justify-end">
-          <Button className="gap-2 rounded-xl" onClick={createDevice}>
-            <Plus className="h-4 w-4" />新增設備
-          </Button>
-        </div>
-
+        <div className="flex justify-end"><Button className="gap-2 rounded-xl" onClick={() => onCreateDevice()}><Plus className="h-4 w-4" />新增設備</Button></div>
         <div className="space-y-3">
-          {devices.map((device) => {
+          {draftDevices.map((device) => {
             const isOpen = openId === device.id;
+            const draft = draftDevices.find((item) => item.id === device.id) ?? device;
             return (
               <div key={device.id} className="rounded-2xl border bg-white">
-                <button
-                  type="button"
-                  onClick={() => setOpenId(isOpen ? "" : device.id)}
-                  className="flex w-full items-center justify-between gap-4 p-4 text-left"
-                >
-                  <div className="space-y-1">
-                    <div className="font-medium">{device.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {device.brand || "未填品牌"} ・ {device.model || "未填型號"} ・ {device.connectionType}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Badge variant={device.isDefault ? "default" : "secondary"}>
-                      {device.isDefault ? "預設設備" : device.status}
-                    </Badge>
-                    {isOpen ? (
-                      <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </div>
-                </button>
-
+                <button type="button" onClick={() => setOpenId(isOpen ? "" : device.id)} className="flex w-full items-center justify-between gap-4 p-4 text-left"><div className="space-y-1"><div className="font-medium">{device.name}</div><div className="text-xs text-muted-foreground">{device.brand} ・ {device.model} ・ {device.connectionType}</div></div><div className="flex items-center gap-3"><Badge variant={device.isDefault ? "default" : "secondary"}>{device.isDefault ? "預設設備" : device.status}</Badge>{isOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}</div></button>
                 {isOpen ? (
                   <div className="border-t px-4 pb-4 pt-3">
                     <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div className="rounded-xl border p-3">
-                        <div className="text-xs text-muted-foreground">設備名稱</div>
-                        <Input
-                          value={device.name}
-                          onChange={(e) => updateDevice(device.id, { name: e.target.value })}
-                          className="mt-2"
-                        />
-                      </div>
-                      <div className="rounded-xl border p-3">
-                        <div className="text-xs text-muted-foreground">品牌</div>
-                        <Input
-                          value={device.brand}
-                          onChange={(e) => updateDevice(device.id, { brand: e.target.value })}
-                          className="mt-2"
-                        />
-                      </div>
-                      <div className="rounded-xl border p-3">
-                        <div className="text-xs text-muted-foreground">型號</div>
-                        <Input
-                          value={device.model}
-                          onChange={(e) => updateDevice(device.id, { model: e.target.value })}
-                          className="mt-2"
-                        />
-                      </div>
-                      <div className="rounded-xl border p-3">
-                        <div className="text-xs text-muted-foreground">用途</div>
-                        <Input
-                          value={device.usage}
-                          onChange={(e) =>
-                            updateDevice(device.id, {
-                              usage: e.target.value as PrinterDevice["usage"],
-                            })
-                          }
-                          className="mt-2"
-                        />
-                      </div>
-                      <div className="rounded-xl border p-3">
-                        <div className="text-xs text-muted-foreground">連線方式</div>
-                        <select
-                          value={device.connectionType}
-                          onChange={(e) =>
-                            updateDevice(device.id, {
-                              connectionType: e.target.value as PrinterDevice["connectionType"],
-                            })
-                          }
-                          className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                        >
-                          <option value="Cloud API">Cloud API</option>
-                          <option value="Wi-Fi">Wi-Fi</option>
-                          <option value="Bluetooth">Bluetooth</option>
-                        </select>
-                      </div>
-                      {device.connectionType === "Wi-Fi" ? (
-                        <>
-                          <div className="rounded-xl border p-3">
-                            <div className="text-xs text-muted-foreground">IP 位址</div>
-                            <Input
-                              value={device.ipAddress}
-                              onChange={(e) => updateDevice(device.id, { ipAddress: e.target.value })}
-                              className="mt-2"
-                              placeholder="例如：192.168.1.88"
-                            />
-                          </div>
-                          <div className="rounded-xl border p-3">
-                            <div className="text-xs text-muted-foreground">Port</div>
-                            <Input
-                              value={device.port}
-                              onChange={(e) => updateDevice(device.id, { port: e.target.value })}
-                              className="mt-2"
-                              placeholder="例如：9100"
-                            />
-                          </div>
-                        </>
-                      ) : (
-                        <div className="col-span-2 rounded-xl border border-dashed p-3 text-sm text-muted-foreground">
-                          {device.connectionType === "Cloud API"
-                            ? "Cloud API 模式不需要填寫 IP 位址與 Port。"
-                            : "Bluetooth 模式不使用 IP 位址與 Port。"}
-                        </div>
-                      )}
-                      <div className="rounded-xl border p-3">
-                        <div className="text-xs text-muted-foreground">打印機 SN</div>
-                        <Input
-                          value={device.deviceId}
-                          onChange={(e) => updateDevice(device.id, { deviceId: e.target.value })}
-                          className="mt-2"
-                        />
-                      </div>
-                      <div className="rounded-xl border p-3">
-                        <div className="text-xs text-muted-foreground">紙張寬度</div>
-                        <Input
-                          value={device.paperWidth}
-                          onChange={(e) => updateDevice(device.id, { paperWidth: e.target.value })}
-                          className="mt-2"
-                        />
-                      </div>
+                      <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">設備名稱</div><Input value={draft.name} onChange={(e) => setDraftDevices((prev) => prev.map((item) => item.id === device.id ? { ...item, name: e.target.value } : item))} className="mt-2" /></div>
+                      <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">品牌</div><Input value={draft.brand} onChange={(e) => setDraftDevices((prev) => prev.map((item) => item.id === device.id ? { ...item, brand: e.target.value } : item))} className="mt-2" /></div>
+                      <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">型號</div><Input value={draft.model} onChange={(e) => setDraftDevices((prev) => prev.map((item) => item.id === device.id ? { ...item, model: e.target.value } : item))} className="mt-2" /></div>
+                      <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">用途</div><Input value={draft.usage} onChange={(e) => setDraftDevices((prev) => prev.map((item) => item.id === device.id ? { ...item, usage: e.target.value as PrinterDevice["usage"] } : item))} className="mt-2" /></div>
+                      <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">連線方式</div><select value={draft.connectionType} onChange={(e) => setDraftDevices((prev) => prev.map((item) => item.id === device.id ? { ...item, connectionType: e.target.value as PrinterDevice["connectionType"] } : item))} className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="Cloud API">Cloud API</option><option value="Wi-Fi">Wi-Fi</option><option value="Bluetooth">Bluetooth</option></select></div>
+                      <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">打印機 SN</div><Input value={draft.deviceId} onChange={(e) => setDraftDevices((prev) => prev.map((item) => item.id === device.id ? { ...item, deviceId: e.target.value } : item))} className="mt-2" /></div>
                     </div>
-
-                    <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
-                      <div className="rounded-xl border p-3 flex items-center justify-between">
-                        <span>切刀設定</span>
-                        <input
-                          type="checkbox"
-                          checked={device.cutterEnabled}
-                          onChange={() =>
-                            updateDevice(device.id, {
-                              cutterEnabled: !device.cutterEnabled,
-                            })
-                          }
-                        />
-                      </div>
-                      <div className="rounded-xl border p-3">
-                        <div className="text-xs text-muted-foreground">是否為預設設備</div>
-                        <div className="mt-1 font-medium">{device.isDefault ? "是" : "否"}</div>
-                      </div>
-                      <div className="rounded-xl border p-3">
-                        <div className="text-xs text-muted-foreground">連線狀態</div>
-                        <div className="mt-1 font-medium">{device.status}</div>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 grid grid-cols-4 gap-2">
-                      <Button
-                        variant="outline"
-                        className="rounded-xl"
-                        onClick={() => setDefaultDevice(device.id)}
-                      >
-                        設為預設
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="rounded-xl"
-                        onClick={() => testPrintDevice(device.id)}
-                      >
-                        測試列印
-                      </Button>
-                      <Button variant="outline" className="rounded-xl">
-                        儲存
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="rounded-xl"
-                        onClick={() => deleteDevice(device.id)}
-                      >
-                        刪除
-                      </Button>
-                    </div>
+                    <div className="mt-3 grid grid-cols-4 gap-2"><Button variant="outline" className="rounded-xl" onClick={() => onSetDefaultDevice(device.id)}>設為預設</Button><Button variant="outline" className="rounded-xl" onClick={() => onTestDevice(device.id)}>測試列印</Button><Button variant="outline" className="rounded-xl" onClick={() => onSaveDevice(draft)}>儲存</Button><Button variant="outline" className="rounded-xl" onClick={() => onDeleteDevice(device.id)}>刪除</Button></div>
                   </div>
                 ) : null}
               </div>
@@ -3207,183 +1522,69 @@ function PrinterDeviceManager({
 
 function SettingsWorkspace({
   suppliers,
-  setSuppliers,
-  labelTemplates,
-  setLabelTemplates,
+  templates,
   printerDevices,
-  setPrinterDevices,
   sampleProduct,
-  storeName,
-  setStoreName,
-  feieUser,
-  setFeieUser,
-  feieUkey,
-  setFeieUkey,
+  settings,
+  onCreateSupplier,
+  onSaveSupplier,
+  onDeleteSupplier,
+  onImportSuppliers,
+  onSaveSettings,
+  onCreateTemplate,
+  onSaveTemplate,
+  onDeleteTemplate,
+  onSetActiveTemplate,
+  onCreateDevice,
+  onSaveDevice,
+  onDeleteDevice,
+  onSetDefaultDevice,
+  onTestDevice,
 }: {
   suppliers: Supplier[];
-  setSuppliers: React.Dispatch<React.SetStateAction<Supplier[]>>;
-  labelTemplates: LabelTemplate[];
-  setLabelTemplates: React.Dispatch<React.SetStateAction<LabelTemplate[]>>;
+  templates: LabelTemplate[];
   printerDevices: PrinterDevice[];
-  setPrinterDevices: React.Dispatch<React.SetStateAction<PrinterDevice[]>>;
   sampleProduct: Product;
-  storeName: string;
-  setStoreName: React.Dispatch<React.SetStateAction<string>>;
-  feieUser: string;
-  setFeieUser: React.Dispatch<React.SetStateAction<string>>;
-  feieUkey: string;
-  setFeieUkey: React.Dispatch<React.SetStateAction<string>>;
+  settings: SystemSettings;
+  onCreateSupplier: () => Promise<void> | void;
+  onSaveSupplier: (supplier: Supplier) => Promise<void> | void;
+  onDeleteSupplier: (supplierId: string) => Promise<void> | void;
+  onImportSuppliers: (suppliers: Supplier[]) => Promise<void> | void;
+  onSaveSettings: (settings: SystemSettings) => Promise<void> | void;
+  onCreateTemplate: () => Promise<void> | void;
+  onSaveTemplate: (template: LabelTemplate) => Promise<void> | void;
+  onDeleteTemplate: (templateId: string) => Promise<void> | void;
+  onSetActiveTemplate: (templateId: string) => Promise<void> | void;
+  onCreateDevice: () => Promise<void> | void;
+  onSaveDevice: (device: PrinterDevice) => Promise<void> | void;
+  onDeleteDevice: (deviceId: string) => Promise<void> | void;
+  onSetDefaultDevice: (deviceId: string) => Promise<void> | void;
+  onTestDevice: (deviceId: string) => Promise<void> | void;
 }) {
-  const [panel, setPanel] = useState<
-    "hub" | "system" | "suppliers" | "label_templates" | "printer_devices"
-  >("hub");
+  const [panel, setPanel] = useState<"hub" | "system" | "suppliers" | "label_templates" | "printer_devices">("hub");
 
-  if (panel === "system") {
-    return (
-      <div className="space-y-4 pb-20 lg:pb-0">
-        <Button variant="outline" className="rounded-xl" onClick={() => setPanel("hub")}>
-          返回設定
-        </Button>
-        <SystemSettingsPanel storeName={storeName} setStoreName={setStoreName} />
-      </div>
-    );
-  }
-
-  if (panel === "suppliers") {
-    return (
-      <div className="space-y-4 pb-20 lg:pb-0">
-        <Button variant="outline" className="rounded-xl" onClick={() => setPanel("hub")}>
-          返回設定
-        </Button>
-        <SupplierManager suppliers={suppliers} setSuppliers={setSuppliers} />
-      </div>
-    );
-  }
-
-  if (panel === "label_templates") {
-    return (
-      <div className="space-y-4 pb-20 lg:pb-0">
-        <Button variant="outline" className="rounded-xl" onClick={() => setPanel("hub")}>
-          返回設定
-        </Button>
-        <LabelTemplateManager
-          templates={labelTemplates}
-          setTemplates={setLabelTemplates}
-          sampleProduct={sampleProduct}
-          storeName={storeName}
-        />
-      </div>
-    );
-  }
-
-  if (panel === "printer_devices") {
-    return (
-      <div className="space-y-4 pb-20 lg:pb-0">
-        <Button variant="outline" className="rounded-xl" onClick={() => setPanel("hub")}>
-          返回設定
-        </Button>
-        <PrinterDeviceManager
-          devices={printerDevices}
-          setDevices={setPrinterDevices}
-          feieUser={feieUser}
-          setFeieUser={setFeieUser}
-          feieUkey={feieUkey}
-          setFeieUkey={setFeieUkey}
-        />
-      </div>
-    );
-  }
+  if (panel === "system") return <div className="space-y-4 pb-20 lg:pb-0"><Button variant="outline" className="rounded-xl" onClick={() => setPanel("hub")}>返回設定</Button><SystemSettingsPanel settings={settings} onSaveSettings={onSaveSettings} /></div>;
+  if (panel === "suppliers") return <div className="space-y-4 pb-20 lg:pb-0"><Button variant="outline" className="rounded-xl" onClick={() => setPanel("hub")}>返回設定</Button><SupplierManager suppliers={suppliers} onCreateSupplier={onCreateSupplier} onSaveSupplier={onSaveSupplier} onDeleteSupplier={onDeleteSupplier} onImportSuppliers={onImportSuppliers} /></div>;
+  if (panel === "label_templates") return <div className="space-y-4 pb-20 lg:pb-0"><Button variant="outline" className="rounded-xl" onClick={() => setPanel("hub")}>返回設定</Button><LabelTemplateManager templates={templates} sampleProduct={sampleProduct} storeName={settings.storeName} onCreateTemplate={onCreateTemplate} onSaveTemplate={onSaveTemplate} onDeleteTemplate={onDeleteTemplate} onSetActiveTemplate={onSetActiveTemplate} /></div>;
+  if (panel === "printer_devices") return <div className="space-y-4 pb-20 lg:pb-0"><Button variant="outline" className="rounded-xl" onClick={() => setPanel("hub")}>返回設定</Button><PrinterDeviceManager devices={printerDevices} onCreateDevice={onCreateDevice} onSaveDevice={onSaveDevice} onDeleteDevice={onDeleteDevice} onSetDefaultDevice={onSetDefaultDevice} onTestDevice={onTestDevice} /></div>;
 
   return (
     <div className="space-y-6 pb-20 lg:pb-0">
-      <SectionTitle
-        title="設定"
-        description="低頻管理功能集中於此，包含廠商資料、系統設定、貨卡模板設定與列印設備設定。"
-      />
-
       <div className="grid gap-4 md:grid-cols-4">
-        <button type="button" onClick={() => setPanel("suppliers")} className="text-left">
-          <Card className="rounded-2xl shadow-sm transition hover:shadow-md">
-            <CardContent className="space-y-3 p-5">
-              <Truck className="h-5 w-5" />
-              <div className="font-medium">廠商資料</div>
-              <div className="text-sm text-muted-foreground">
-                新增 / 修改 / 刪除廠商資料，管理啟用狀態。
-              </div>
-            </CardContent>
-          </Card>
-        </button>
-        <button type="button" onClick={() => setPanel("system")} className="text-left">
-          <Card className="rounded-2xl shadow-sm transition hover:shadow-md">
-            <CardContent className="space-y-3 p-5">
-              <SlidersHorizontal className="h-5 w-5" />
-              <div className="font-medium">系統設定</div>
-              <div className="text-sm text-muted-foreground">設定門店名稱與基本系統資訊。</div>
-            </CardContent>
-          </Card>
-        </button>
-        <button
-          type="button"
-          onClick={() => setPanel("label_templates")}
-          className="text-left"
-        >
-          <Card className="rounded-2xl shadow-sm transition hover:shadow-md">
-            <CardContent className="space-y-3 p-5">
-              <FileText className="h-5 w-5" />
-              <div className="font-medium">貨卡模板設定</div>
-              <div className="text-sm text-muted-foreground">
-                管理 4 × 6 cm 貨卡模板、欄位顯示與價格字級。
-              </div>
-            </CardContent>
-          </Card>
-        </button>
-        <button
-          type="button"
-          onClick={() => setPanel("printer_devices")}
-          className="text-left"
-        >
-          <Card className="rounded-2xl shadow-sm transition hover:shadow-md">
-            <CardContent className="space-y-3 p-5">
-              <Printer className="h-5 w-5" />
-              <div className="font-medium">列印設備設定</div>
-              <div className="text-sm text-muted-foreground">
-                設定飛鵝 user / UKEY、管理設備 SN、預設設備與測試列印。
-              </div>
-            </CardContent>
-          </Card>
-        </button>
+        <button type="button" onClick={() => setPanel("suppliers")} className="text-left"><Card className="rounded-2xl shadow-sm transition hover:shadow-md"><CardContent className="space-y-3 p-5"><Truck className="h-5 w-5" /><div className="font-medium">廠商資料</div></CardContent></Card></button>
+        <button type="button" onClick={() => setPanel("system")} className="text-left"><Card className="rounded-2xl shadow-sm transition hover:shadow-md"><CardContent className="space-y-3 p-5"><SlidersHorizontal className="h-5 w-5" /><div className="font-medium">系統設定</div></CardContent></Card></button>
+        <button type="button" onClick={() => setPanel("label_templates")} className="text-left"><Card className="rounded-2xl shadow-sm transition hover:shadow-md"><CardContent className="space-y-3 p-5"><FileText className="h-5 w-5" /><div className="font-medium">貨卡模板設定</div></CardContent></Card></button>
+        <button type="button" onClick={() => setPanel("printer_devices")} className="text-left"><Card className="rounded-2xl shadow-sm transition hover:shadow-md"><CardContent className="space-y-3 p-5"><Printer className="h-5 w-5" /><div className="font-medium">列印設備設定</div></CardContent></Card></button>
       </div>
-
-      <Card className="rounded-2xl shadow-sm">
-        <CardHeader>
-          <CardTitle>Prototype Checks</CardTitle>
-          <CardDescription>檢查新流程核心規則是否已被模型化。</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {runPrototypeTests().map((test) => (
-            <div
-              key={test.name}
-              className="flex items-center justify-between rounded-xl border p-3 text-sm"
-            >
-              <span>{test.name}</span>
-              <Badge variant={test.pass ? "default" : "destructive"}>
-                {test.pass ? "PASS" : "FAIL"}
-              </Badge>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
     </div>
   );
 }
 
-function MobileBottomNav({
-  active,
-  onChange,
-}: {
-  active: NavKey;
-  onChange: (key: NavKey) => void;
-}) {
+function StatCard({ title, value, note }: { title: string; value: string; note: string }) {
+  return <Card className="rounded-2xl shadow-sm"><CardContent className="space-y-2 p-4"><div className="text-sm text-muted-foreground">{title}</div><div className="text-2xl font-semibold">{value}</div><div className="text-xs text-muted-foreground">{note}</div></CardContent></Card>;
+}
+
+function MobileBottomNav({ active, onChange }: { active: NavKey; onChange: (key: NavKey) => void }) {
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 backdrop-blur lg:hidden">
       <div className="grid grid-cols-5 gap-1 px-2 py-2">
@@ -3391,14 +1592,7 @@ function MobileBottomNav({
           const Icon = item.icon;
           const isActive = active === item.key;
           return (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => onChange(item.key)}
-              className={`flex flex-col items-center justify-center rounded-2xl px-2 py-2 text-[11px] transition ${
-                isActive ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
-              }`}
-            >
+            <button key={item.key} type="button" onClick={() => onChange(item.key)} className={`flex flex-col items-center justify-center rounded-2xl px-2 py-2 text-[11px] transition ${isActive ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}>
               <Icon className="mb-1 h-4 w-4" />
               <span>{item.shortLabel}</span>
             </button>
@@ -3411,24 +1605,29 @@ function MobileBottomNav({
 
 export default function SupermarketInventoryFrontendPrototype() {
   const [active, setActive] = useState<NavKey>("inbound");
-  const [storeName, setStoreName] = useState<string>("嘉義門市");
-  const [feieUser, setFeieUser] = useState<string>("");
-  const [feieUkey, setFeieUkey] = useState<string>("");
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers);
   const [batchRecords, setBatchRecords] = useState<BatchRecord[]>(initialBatchRecords);
-  const [labelTemplates, setLabelTemplates] = useState<LabelTemplate[]>(initialLabelTemplates);
+  const [templates, setTemplates] = useState<LabelTemplate[]>(initialLabelTemplates);
   const [printerDevices, setPrinterDevices] = useState<PrinterDevice[]>(initialPrinterDevices);
+  const [settings, setSettings] = useState<SystemSettings>(initialSystemSettings);
 
   useEffect(() => {
-    const loadProducts = async () => {
+    const loadAll = async () => {
       try {
-        const snapshot = await getDocs(collection(db, "products"));
-        const remoteProducts = snapshot.docs.map((doc) => {
-          const data = doc.data();
+        const [productSnap, supplierSnap, batchSnap, templateSnap, printerSnap, settingsSnap] = await Promise.all([
+          getDocs(collection(db, "products")),
+          getDocs(collection(db, "suppliers")),
+          getDocs(collection(db, "batchRecords")),
+          getDocs(collection(db, "labelTemplates")),
+          getDocs(collection(db, "printerDevices")),
+          getDocs(collection(db, "systemSettings")),
+        ]);
 
+        const remoteProducts = productSnap.docs.map((snapshot) => {
+          const data = snapshot.data();
           return {
-            docId: doc.id,
+            docId: snapshot.id,
             barcode: String(data.barcode ?? ""),
             name: String(data.name ?? ""),
             category: String(data.category ?? ""),
@@ -3441,213 +1640,221 @@ export default function SupermarketInventoryFrontendPrototype() {
           } as Product;
         });
 
-        if (remoteProducts.length > 0) {
-          setProducts(remoteProducts);
-        }
+        const remoteSuppliers = supplierSnap.docs.map((snapshot) => {
+          const data = snapshot.data();
+          return {
+            id: snapshot.id,
+            code: String(data.code ?? ""),
+            name: String(data.name ?? ""),
+            contact: String(data.contact ?? ""),
+            phone: String(data.phone ?? ""),
+            note: String(data.note ?? ""),
+            active: Boolean(data.active ?? true),
+          } as Supplier;
+        });
+
+        const remoteBatchRecords = batchSnap.docs.map((snapshot) => {
+          const data = snapshot.data();
+          return {
+            docId: snapshot.id,
+            id: String(data.id ?? snapshot.id),
+            date: String(data.date ?? ""),
+            supplier: String(data.supplier ?? ""),
+            totalAmount: Number(data.totalAmount ?? 0),
+            itemCount: Number(data.itemCount ?? 0),
+            lines: Array.isArray(data.lines) ? data.lines : [],
+          } as BatchRecord;
+        });
+
+        const remoteTemplates = templateSnap.docs.map((snapshot) => ({ id: snapshot.id, ...(snapshot.data() as Omit<LabelTemplate, "id">) } as LabelTemplate));
+        const remotePrinters = printerSnap.docs.map((snapshot) => ({ id: snapshot.id, ...(snapshot.data() as Omit<PrinterDevice, "id">) } as PrinterDevice));
+        const remoteSettingsDoc = settingsSnap.docs[0];
+
+        if (remoteProducts.length > 0) setProducts(remoteProducts);
+        if (remoteSuppliers.length > 0) setSuppliers(remoteSuppliers);
+        if (remoteBatchRecords.length > 0) setBatchRecords(remoteBatchRecords);
+        if (remoteTemplates.length > 0) setTemplates(remoteTemplates);
+        if (remotePrinters.length > 0) setPrinterDevices(remotePrinters);
+        if (remoteSettingsDoc) setSettings({
+          storeName: normalizeStoreName(String(remoteSettingsDoc.data().storeName ?? initialSystemSettings.storeName)),
+          feieUser: String(remoteSettingsDoc.data().feieUser ?? ""),
+          feieUkey: String(remoteSettingsDoc.data().feieUkey ?? ""),
+        });
       } catch (error) {
-        console.error("load products failed", error);
+        console.error("load firebase data failed", error);
       }
     };
 
-    loadProducts();
+    loadAll();
   }, []);
 
   const lowStockCount = getLowStockCount(products, 10);
   const supplierCount = getActiveSupplierCount(suppliers);
 
-  const saveProductEdit = async (
-    originalBarcode: string,
-    patch: EditableProductFields
-  ) => {
-    const targetProduct = products.find((product) => product.barcode === originalBarcode);
-
-    setProducts((prev) =>
-      prev.map((product) =>
-        product.barcode === originalBarcode ? { ...product, ...patch } : product
-      )
-    );
-
-    try {
-      if (targetProduct?.docId) {
-        await updateDoc(doc(collection(db, "products"), targetProduct.docId), {
-          name: patch.name,
-          barcode: patch.barcode,
-          category: patch.category,
-          supplier: patch.supplier,
-          cost: patch.cost,
-          price: patch.price,
-          untaxed: patch.untaxed,
-        });
-        return;
-      }
-
-      const productQuery = query(
-        collection(db, "products"),
-        where("barcode", "==", originalBarcode)
-      );
-      const snapshot = await getDocs(productQuery);
-
-      if (!snapshot.empty) {
-        await updateDoc(snapshot.docs[0].ref, {
-          name: patch.name,
-          barcode: patch.barcode,
-          category: patch.category,
-          supplier: patch.supplier,
-          cost: patch.cost,
-          price: patch.price,
-          untaxed: patch.untaxed,
-        });
-      }
-    } catch (error) {
-      console.error("save product failed", error);
-    }
+  const saveProductEdit = async (originalBarcode: string, patch: EditableProductFields) => {
+    const target = products.find((product) => product.barcode === originalBarcode);
+    setProducts((prev) => prev.map((product) => product.barcode === originalBarcode ? { ...product, ...patch } : product));
+    if (!target?.docId) return;
+    await updateDoc(doc(db, "products", target.docId), patch);
   };
 
   const createProduct = async (payload: NewProductFields) => {
-    const nextProduct: Product = {
-      barcode: payload.barcode,
-      name: payload.name,
-      category: payload.category,
-      supplier: payload.supplier,
-      cost: payload.cost,
-      price: payload.price,
-      untaxed: payload.untaxed,
-      stock: payload.stock,
-      history: [],
-    };
-
-    try {
-      const docRef = await addDoc(collection(db, "products"), {
-        barcode: payload.barcode,
-        name: payload.name,
-        category: payload.category,
-        supplier: payload.supplier,
-        cost: payload.cost,
-        price: payload.price,
-        untaxed: payload.untaxed,
-        stock: payload.stock,
-        history: [],
-      });
-
-      setProducts((prev) => [{ ...nextProduct, docId: docRef.id }, ...prev]);
-    } catch (error) {
-      console.error("create product failed", error);
-    }
+    const docRef = await addDoc(collection(db, "products"), { ...payload, history: [] });
+    setProducts((prev) => [{ ...payload, history: [], docId: docRef.id }, ...prev]);
   };
 
-  const importProducts = async (payload: ImportProductFields[]) => {
-    try {
-      const createdProducts: Product[] = [];
-      for (const item of payload) {
-        const docRef = await addDoc(collection(db, "products"), {
-          barcode: item.barcode,
-          name: item.name,
-          category: item.category,
-          supplier: item.supplier,
-          cost: item.cost,
-          price: item.price,
-          untaxed: item.untaxed,
-          stock: item.stock,
-          history: [],
-        });
-        createdProducts.push({
-          ...item,
-          history: [],
-          docId: docRef.id,
-        });
-      }
-
-      if (createdProducts.length > 0) {
-        setProducts((prev) => [...createdProducts, ...prev]);
-      }
-    } catch (error) {
-      console.error("import products failed", error);
+  const importProducts = async (payload: NewProductFields[]) => {
+    const created: Product[] = [];
+    for (const item of payload) {
+      const docRef = await addDoc(collection(db, "products"), { ...item, history: [] });
+      created.push({ ...item, history: [], docId: docRef.id });
     }
+    if (created.length > 0) setProducts((prev) => [...created, ...prev]);
   };
 
   const saveInboundBatch = async (items: FlowItem[]) => {
     if (items.length === 0) return;
-
-    const now = new Date();
-    const date = now.toISOString().slice(0, 10);
+    const date = new Date().toISOString().slice(0, 10);
     const batchId = `BATCH-${date.replace(/-/g, "")}-${String(batchRecords.length + 1).padStart(3, "0")}`;
-    const totalAmount = calculateTotal(items);
-    const supplierName = items[0]?.supplier ?? "未指定廠商";
-
     const nextRecord: BatchRecord = {
       id: batchId,
       date,
-      supplier: supplierName,
-      totalAmount,
+      supplier: items[0]?.supplier ?? "未指定廠商",
+      totalAmount: calculateTotal(items),
       itemCount: items.length,
-      lines: items.map((item) => ({
-        barcode: item.barcode,
-        product: item.name,
-        supplier: item.supplier,
-        qty: item.qty,
-        price: item.price,
-        amount: item.amount,
-      })),
+      lines: items.map((item) => ({ barcode: item.barcode, product: item.name, supplier: item.supplier, qty: item.qty, price: item.price, amount: item.amount })),
     };
-
-    try {
-      const batchDocRef = await addDoc(collection(db, "batchRecords"), {
-        id: batchId,
-        date,
-        supplier: supplierName,
-        totalAmount,
-        itemCount: items.length,
-        lines: nextRecord.lines,
-      });
-
-      setBatchRecords((prev) => [{ ...nextRecord, docId: batchDocRef.id }, ...prev]);
-
-      const productMap = new Map(products.map((product) => [product.barcode, product]));
-
-      for (const item of items) {
-        const targetProduct = productMap.get(item.barcode);
-        if (!targetProduct?.docId) continue;
-
-        const nextHistory = [
-          {
-            date,
-            type: item.qty >= 0 ? "進貨" : "退貨",
-            qty: item.qty,
-            price: item.price,
-            amount: item.amount,
-          },
-          ...(Array.isArray(targetProduct.history) ? targetProduct.history : []),
-        ];
-
-        await updateDoc(doc(collection(db, "products"), targetProduct.docId), {
-          stock: targetProduct.stock + item.qty,
-          history: nextHistory,
-        });
-      }
-
-      setProducts((prev) =>
-        prev.map((product) => {
-          const matched = items.find((item) => item.barcode === product.barcode);
-          if (!matched) return product;
-          return {
-            ...product,
-            stock: product.stock + matched.qty,
-            history: [
-              {
-                date,
-                type: matched.qty >= 0 ? "進貨" : "退貨",
-                qty: matched.qty,
-                price: matched.price,
-                amount: matched.amount,
-              },
-              ...product.history,
-            ],
-          };
-        })
-      );
-    } catch (error) {
-      console.error("save inbound batch failed", error);
+    const batchDocRef = await addDoc(collection(db, "batchRecords"), nextRecord);
+    setBatchRecords((prev) => [{ ...nextRecord, docId: batchDocRef.id }, ...prev]);
+    for (const item of items) {
+      const target = products.find((product) => product.barcode === item.barcode);
+      if (!target?.docId) continue;
+      const historyEntry: HistoryRecord = { date, type: item.qty >= 0 ? "進貨" : "退貨", qty: item.qty, price: item.price, amount: item.amount };
+      await updateDoc(doc(db, "products", target.docId), { stock: target.stock + item.qty, history: [historyEntry, ...(target.history ?? [])] });
     }
+    setProducts((prev) => prev.map((product) => {
+      const matched = items.find((item) => item.barcode === product.barcode);
+      if (!matched) return product;
+      const historyEntry: HistoryRecord = { date, type: matched.qty >= 0 ? "進貨" : "退貨", qty: matched.qty, price: matched.price, amount: matched.amount };
+      return { ...product, stock: product.stock + matched.qty, history: [historyEntry, ...product.history] };
+    }));
+  };
+
+  const updateBatchRecord = async (record: BatchRecord) => {
+    if (!record.docId) return;
+    const payload = { id: record.id, date: record.date, supplier: record.supplier, totalAmount: record.totalAmount, itemCount: record.itemCount, lines: record.lines.map((line) => ({ ...line, edited: false })) };
+    await updateDoc(doc(db, "batchRecords", record.docId), payload);
+    setBatchRecords((prev) => prev.map((item) => item.id === record.id ? { ...record, lines: payload.lines } : item));
+  };
+
+  const deleteBatchLine = async (recordId: string, lineIndex: number) => {
+    const target = batchRecords.find((record) => record.id === recordId);
+    if (!target?.docId) return;
+    const nextLines = target.lines.filter((_, index) => index !== lineIndex);
+    if (nextLines.length === 0) {
+      await deleteDoc(doc(db, "batchRecords", target.docId));
+      setBatchRecords((prev) => prev.filter((item) => item.id !== recordId));
+      return;
+    }
+    const nextRecord = recalcBatchTotals({ ...target, lines: nextLines });
+    await updateDoc(doc(db, "batchRecords", target.docId), { lines: nextRecord.lines, totalAmount: nextRecord.totalAmount, itemCount: nextRecord.itemCount });
+    setBatchRecords((prev) => prev.map((item) => item.id === recordId ? { ...nextRecord, docId: target.docId } : item));
+  };
+
+  const addProductToBatch = async (recordId: string, product: Product) => {
+    const target = batchRecords.find((record) => record.id === recordId);
+    if (!target?.docId) return;
+    const nextRecord = recalcBatchTotals({
+      ...target,
+      lines: [...target.lines, { barcode: product.barcode, product: product.name, supplier: product.supplier, qty: 1, price: product.cost, amount: calculateAmount(1, product.cost), edited: true }],
+    });
+    await updateDoc(doc(db, "batchRecords", target.docId), { lines: nextRecord.lines, totalAmount: nextRecord.totalAmount, itemCount: nextRecord.itemCount });
+    setBatchRecords((prev) => prev.map((item) => item.id === recordId ? { ...nextRecord, docId: target.docId } : item));
+  };
+
+  const createSupplier = async () => {
+    const payload = { code: `V${String(suppliers.length + 1).padStart(3, "0")}`, name: "新廠商", contact: "", phone: "", note: "", active: true };
+    const docRef = await addDoc(collection(db, "suppliers"), payload);
+    setSuppliers((prev) => [{ id: docRef.id, ...payload }, ...prev]);
+  };
+
+  const saveSupplier = async (supplier: Supplier) => {
+    await setDoc(doc(db, "suppliers", supplier.id), { code: supplier.code, name: supplier.name, contact: supplier.contact, phone: supplier.phone, note: supplier.note, active: supplier.active });
+    setSuppliers((prev) => prev.map((item) => item.id === supplier.id ? supplier : item));
+  };
+
+  const deleteSupplier = async (supplierId: string) => {
+    await deleteDoc(doc(db, "suppliers", supplierId));
+    setSuppliers((prev) => prev.filter((item) => item.id !== supplierId));
+  };
+
+  const importSuppliers = async (payload: Supplier[]) => {
+    const created: Supplier[] = [];
+    for (const supplier of payload) {
+      const docRef = await addDoc(collection(db, "suppliers"), { code: supplier.code, name: supplier.name, contact: supplier.contact, phone: supplier.phone, note: supplier.note, active: supplier.active });
+      created.push({ ...supplier, id: docRef.id });
+    }
+    if (created.length > 0) setSuppliers((prev) => [...created, ...prev]);
+  };
+
+  const saveSystemSettings = async (nextSettings: SystemSettings) => {
+    await setDoc(doc(db, "systemSettings", "main"), nextSettings);
+    setSettings(nextSettings);
+  };
+
+  const createTemplate = async () => {
+    const payload: Omit<LabelTemplate, "id"> = { name: "新模板", paperSize: "4 × 6 cm", showCategory: true, showBarcode: true, showSpec: false, showUpdatedDate: false, priceSize: "md", active: false };
+    const docRef = await addDoc(collection(db, "labelTemplates"), payload);
+    setTemplates((prev) => [{ id: docRef.id, ...payload }, ...prev]);
+  };
+
+  const saveTemplate = async (template: LabelTemplate) => {
+    await setDoc(doc(db, "labelTemplates", template.id), { name: template.name, paperSize: template.paperSize, showCategory: template.showCategory, showBarcode: template.showBarcode, showSpec: template.showSpec, showUpdatedDate: template.showUpdatedDate, priceSize: template.priceSize, active: template.active });
+    setTemplates((prev) => prev.map((item) => item.id === template.id ? template : item));
+  };
+
+  const deleteTemplate = async (templateId: string) => {
+    await deleteDoc(doc(db, "labelTemplates", templateId));
+    setTemplates((prev) => prev.filter((item) => item.id !== templateId));
+  };
+
+  const setActiveTemplate = async (templateId: string) => {
+    const nextTemplates = templates.map((item) => ({ ...item, active: item.id === templateId }));
+    for (const template of nextTemplates) {
+      await setDoc(doc(db, "labelTemplates", template.id), { name: template.name, paperSize: template.paperSize, showCategory: template.showCategory, showBarcode: template.showBarcode, showSpec: template.showSpec, showUpdatedDate: template.showUpdatedDate, priceSize: template.priceSize, active: template.active });
+    }
+    setTemplates(nextTemplates);
+  };
+
+  const createPrinterDevice = async () => {
+    const payload: Omit<PrinterDevice, "id"> = { name: "新設備", brand: "", model: "", usage: "貨卡", connectionType: "Wi-Fi", ipAddress: "", port: "9100", deviceId: "", paperWidth: "57mm", cutterEnabled: true, isDefault: false, status: "未連線" };
+    const docRef = await addDoc(collection(db, "printerDevices"), payload);
+    setPrinterDevices((prev) => [{ id: docRef.id, ...payload }, ...prev]);
+  };
+
+  const savePrinterDevice = async (device: PrinterDevice) => {
+    await setDoc(doc(db, "printerDevices", device.id), { name: device.name, brand: device.brand, model: device.model, usage: device.usage, connectionType: device.connectionType, ipAddress: device.ipAddress, port: device.port, deviceId: device.deviceId, paperWidth: device.paperWidth, cutterEnabled: device.cutterEnabled, isDefault: device.isDefault, status: device.status });
+    setPrinterDevices((prev) => prev.map((item) => item.id === device.id ? device : item));
+  };
+
+  const deletePrinterDevice = async (deviceId: string) => {
+    await deleteDoc(doc(db, "printerDevices", deviceId));
+    setPrinterDevices((prev) => prev.filter((item) => item.id !== deviceId));
+  };
+
+  const setDefaultPrinterDevice = async (deviceId: string) => {
+    const nextDevices = printerDevices.map((item) => ({ ...item, isDefault: item.id === deviceId }));
+    for (const device of nextDevices) {
+      await setDoc(doc(db, "printerDevices", device.id), { name: device.name, brand: device.brand, model: device.model, usage: device.usage, connectionType: device.connectionType, ipAddress: device.ipAddress, port: device.port, deviceId: device.deviceId, paperWidth: device.paperWidth, cutterEnabled: device.cutterEnabled, isDefault: device.isDefault, status: device.status });
+    }
+    setPrinterDevices(nextDevices);
+  };
+
+  const testPrinterDevice = async (deviceId: string) => {
+    const target = printerDevices.find((item) => item.id === deviceId);
+    if (!target) return;
+    const next = { ...target, status: "已連線" as const };
+    await savePrinterDevice(next);
   };
 
   return (
@@ -3655,112 +1862,38 @@ export default function SupermarketInventoryFrontendPrototype() {
       <div className="mx-auto grid min-h-screen max-w-7xl lg:grid-cols-[260px_1fr]">
         <aside className="hidden border-r bg-white p-4 lg:block lg:p-5">
           <div className="mb-6 space-y-1">
-            <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-              {normalizeStoreName(storeName)}
-            </div>
+            <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{normalizeStoreName(settings.storeName)}</div>
             <div className="text-xl font-semibold">超市庫存系統</div>
             <div className="text-sm text-muted-foreground">Canvas 前端原型</div>
           </div>
-
           <div className="mb-4 grid grid-cols-2 gap-2 text-sm">
             <StatCard title="商品" value={String(products.length)} note="主檔筆數" />
             <StatCard title="廠商" value={String(supplierCount)} note="啟用中" />
             <StatCard title="低庫存" value={String(lowStockCount)} note="≤ 10" />
-            <StatCard title="批次" value={String(batchRecords.length)} note="示意資料" />
+            <StatCard title="批次" value={String(batchRecords.length)} note="批次紀錄" />
           </div>
-
           <nav className="space-y-2">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = active === item.key;
-              return (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => setActive(item.key)}
-                  className={`flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm transition ${
-                    isActive ? "bg-slate-900 text-white" : "bg-transparent hover:bg-slate-100"
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span>{item.label}</span>
-                </button>
-              );
+              return <button key={item.key} type="button" onClick={() => setActive(item.key)} className={`flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm transition ${isActive ? "bg-slate-900 text-white" : "bg-transparent hover:bg-slate-100"}`}><Icon className="h-4 w-4" /><span>{item.label}</span></button>;
             })}
           </nav>
-
-          <div className="mt-6 rounded-2xl border p-4 text-sm">
-            <div className="font-medium">系統邊界</div>
-            <p className="mt-2 leading-6 text-muted-foreground">
-              POS 處理收銀與發票。
-              <br />
-              這個系統處理商品、庫存、進退貨、貨卡、批次紀錄與設定。
-            </p>
-          </div>
         </aside>
 
         <main className="overflow-x-hidden p-4 lg:p-6">
-          <div className="mb-4 space-y-1 lg:hidden">
-            <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-              {normalizeStoreName(storeName)}
-            </div>
-            <div className="text-xl font-semibold">超市庫存系統</div>
-            <div className="text-sm text-muted-foreground">預設進入進貨作業</div>
-          </div>
-
           <div className="pb-24 pr-2 lg:pb-4">
-            <motion.div
-              key={active}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.18 }}
-              className="space-y-6"
-            >
-              {active === "products" ? (
-                <ProductMaster
-                  products={products}
-                  suppliers={suppliers}
-                  onSaveEdit={saveProductEdit}
-                  onCreateProduct={createProduct}
-                  onImportProducts={importProducts}
-                />
-              ) : null}
-              {active === "inbound" ? (
-                <InboundWorkbench products={products} onSaveBatch={saveInboundBatch} />
-              ) : null}
+            <motion.div key={active} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }} className="space-y-6">
+              {active === "products" ? <ProductMaster products={products} suppliers={suppliers} onSaveEdit={saveProductEdit} onCreateProduct={createProduct} onImportProducts={importProducts} /> : null}
+              {active === "inbound" ? <InboundWorkbench products={products} onSaveBatch={saveInboundBatch} /> : null}
               {active === "stock" ? <StockQuery products={products} /> : null}
-              {active === "labels" ? (
-                <LabelPrinter products={products} storeName={storeName} />
-              ) : null}
-              {active === "records" ? (
-                <RecordQuery
-                  batchRecords={batchRecords}
-                  setBatchRecords={setBatchRecords}
-                  products={products}
-                />
-              ) : null}
-              {active === "settings" ? (
-                <SettingsWorkspace
-                  suppliers={suppliers}
-                  setSuppliers={setSuppliers}
-                  labelTemplates={labelTemplates}
-                  setLabelTemplates={setLabelTemplates}
-                  printerDevices={printerDevices}
-                  setPrinterDevices={setPrinterDevices}
-                  sampleProduct={products[0]}
-                  storeName={storeName}
-                  setStoreName={setStoreName}
-                  feieUser={feieUser}
-                  setFeieUser={setFeieUser}
-                  feieUkey={feieUkey}
-                  setFeieUkey={setFeieUkey}
-                />
-              ) : null}
+              {active === "labels" ? <LabelPrinter products={products} storeName={settings.storeName} templates={templates} /> : null}
+              {active === "records" ? <RecordQuery batchRecords={batchRecords} products={products} onUpdateBatchRecord={updateBatchRecord} onDeleteBatchRecord={deleteBatchLine} onAddProductToBatch={addProductToBatch} /> : null}
+              {active === "settings" ? <SettingsWorkspace suppliers={suppliers} templates={templates} printerDevices={printerDevices} sampleProduct={products[0] ?? initialProducts[0]} settings={settings} onCreateSupplier={createSupplier} onSaveSupplier={saveSupplier} onDeleteSupplier={deleteSupplier} onImportSuppliers={importSuppliers} onSaveSettings={saveSystemSettings} onCreateTemplate={createTemplate} onSaveTemplate={saveTemplate} onDeleteTemplate={deleteTemplate} onSetActiveTemplate={setActiveTemplate} onCreateDevice={createPrinterDevice} onSaveDevice={savePrinterDevice} onDeleteDevice={deletePrinterDevice} onSetDefaultDevice={setDefaultPrinterDevice} onTestDevice={testPrinterDevice} /> : null}
             </motion.div>
           </div>
         </main>
       </div>
-
       <MobileBottomNav active={active} onChange={setActive} />
     </div>
   );
