@@ -293,9 +293,9 @@ const initialLabelTemplates: LabelTemplate[] = [
     id: "tpl-a",
     name: "模板 A｜標準售價卡",
     paperSize: "4 × 6 cm",
-    showCategory: true,
+    showCategory: false,
     showBarcode: true,
-    showSpec: false,
+    showSpec: true,
     showUpdatedDate: false,
     priceSize: "lg",
     active: true,
@@ -462,31 +462,30 @@ function buildFeieReceiptContent({
   printer: PrinterDevice | null;
 }) {
   const lines = [
-    `<CB>${normalizeStoreName(storeName)}</CB>`,
-    "<BR>",
-    `<CB><B>${product.name}</B></CB>`,
-    "<BR>",
+    `${normalizeStoreName(storeName)}<BR>`,
+    `<BR>`,
+    `<B>${product.name}</B><BR>`,
   ];
 
-  if (template.showCategory) lines.push(`<C>分類：${product.category}</C><BR>`);
-  if (template.showSpec) lines.push(`<C>規格：600ml</C><BR>`);
-  if (template.showUpdatedDate) lines.push("<C>更新：2026-06-12</C><BR>");
-
-  lines.push("<BR>");
-  lines.push(`<CB>售價 NT$ ${product.price}</CB>`);
-  lines.push("<BR>");
-
-  if (template.showBarcode) {
-    lines.push(`<C>${product.barcode}</C>`);
-    lines.push("<BR>");
+  if (template.showSpec) {
+    lines.push(`規格：600ml<BR>`);
   }
 
-  lines.push("<BR>");
-  lines.push("<BR>");
-  lines.push("<BR>");
+  if (template.showUpdatedDate) {
+    lines.push(`更新：2026-06-12<BR>`);
+  }
+
+  lines.push(`<BR>`);
+  lines.push(`<RIGHT><BOLD><B>${product.price}元</B></BOLD></RIGHT><BR>`);
+
+  if (template.showBarcode) {
+    lines.push(`${product.barcode}<BR>`);
+  }
+
+  lines.push(`<BR><BR><BR>`);
 
   if (printer?.cutterEnabled) {
-    lines.push("<CUT>");
+    lines.push(`<CUT>`);
   }
 
   return lines.join("");
@@ -1168,16 +1167,34 @@ function ReceiptLabelPreview({
   return (
     <div className="mx-auto w-full max-w-sm rounded-[8px] border bg-white shadow-sm">
       <div className="flex min-h-[230px] flex-col px-4 pb-4 pt-4 text-black">
-        <div className="text-left text-[11px] font-semibold tracking-[0.08em] text-black/70">{normalizeStoreName(storeName)}</div>
-        <div className="mt-3 text-left text-[30px] font-bold leading-[1.2]">{product.name}</div>
+        <div className="text-left text-[9px] font-medium tracking-[0.04em] text-black/65">
+          {normalizeStoreName(storeName)}
+        </div>
+        <div className="mt-3 text-left text-[30px] font-bold leading-[1.2]">
+          {product.name}
+        </div>
         <div className="mt-4 space-y-1 leading-tight">
           {showSpec ? <div className="text-[15px] font-semibold">規格：600ml</div> : null}
           {showCategory ? <div className="text-[14px] font-medium">分類：{product.category}</div> : null}
           {showUpdatedDate ? <div className="text-[11px] text-black/70">更新：2026-06-12</div> : null}
         </div>
         <div className="mt-auto flex items-end justify-between gap-4">
-          <div className="w-[54%] max-w-[220px]"><BarcodeGraphic value={product.barcode} width={0.74} height={34} fontSize={7} margin={0} wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0" /></div>
-          <div className="flex items-end justify-end gap-1 text-right"><div className={`${priceClassName} font-black leading-[0.82] tracking-tight`}>{product.price}</div><div className="pb-2 text-[26px] font-bold leading-none">元</div></div>
+          <div className="w-[54%] max-w-[220px]">
+            <BarcodeGraphic
+              value={product.barcode}
+              width={0.74}
+              height={34}
+              fontSize={7}
+              margin={0}
+              wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
+            />
+          </div>
+          <div className="flex items-end justify-end gap-1 text-right">
+            <div className={`${priceClassName} font-black leading-[0.82] tracking-tight`}>
+              {product.price}
+            </div>
+            <div className="pb-2 text-[26px] font-bold leading-none">元</div>
+          </div>
         </div>
       </div>
     </div>
@@ -1245,13 +1262,23 @@ function LabelPrinter({
           </motion.div>
           <div className="rounded-2xl border bg-white p-4 text-sm leading-6 text-slate-800">
             <div className="text-xs uppercase tracking-[0.2em] text-slate-500">實際小票機輸出參考</div>
-            <div className="mt-3 text-center font-semibold">{normalizeStoreName(storeName)}</div>
-            <div className="mt-2 text-center text-lg font-bold">{selected.name}</div>
-            {activeTemplate?.showCategory ? <div className="mt-2 text-center">分類：{selected.category}</div> : null}
-            {activeTemplate?.showSpec ? <div className="text-center">規格：600ml</div> : null}
-            {activeTemplate?.showUpdatedDate ? <div className="text-center">更新：2026-06-12</div> : null}
-            <div className="mt-4 text-center text-2xl font-bold">售價 NT$ {selected.price}</div>
-            {activeTemplate?.showBarcode ? <div className="mt-3 text-center tracking-wide">{selected.barcode}</div> : null}
+            <div className="mt-3 text-left text-[10px] font-medium text-slate-500">{normalizeStoreName(storeName)}</div>
+            <div className="mt-2 text-left text-lg font-bold">{selected.name}</div>
+            {activeTemplate?.showSpec ? <div className="mt-2 text-left">規格：600ml</div> : null}
+            {activeTemplate?.showUpdatedDate ? <div className="text-left text-xs text-slate-500">更新：2026-06-12</div> : null}
+            <div className="mt-4 text-right text-[40px] font-black leading-none">{selected.price}<span className="ml-1 text-[18px] font-bold">元</span></div>
+            {activeTemplate?.showBarcode ? (
+              <div className="mt-4">
+                <BarcodeGraphic
+                  value={selected.barcode}
+                  width={0.9}
+                  height={34}
+                  fontSize={8}
+                  margin={0}
+                  wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
+                />
+              </div>
+            ) : null}
             <div className="mt-4 border-t border-dashed pt-3 text-center text-xs text-slate-500">
               切刀前預留 3 行空白
             </div>
