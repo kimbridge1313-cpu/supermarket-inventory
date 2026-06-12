@@ -454,22 +454,40 @@ function buildFeieReceiptContent({
   storeName,
   product,
   template,
+  printer,
 }: {
   storeName: string;
   product: Product;
   template: LabelTemplate;
+  printer: PrinterDevice | null;
 }) {
   const lines = [
     `<CB>${normalizeStoreName(storeName)}</CB>`,
     "<BR>",
-    `<B>${product.name}</B>`,
+    `<CB><B>${product.name}</B></CB>`,
+    "<BR>",
   ];
 
-  if (template.showCategory) lines.push(`<BR>分類：${product.category}`);
-  if (template.showSpec) lines.push("<BR>規格：600ml");
-  lines.push(`<BR>售價：NT$ ${product.price}`);
-  if (template.showBarcode) lines.push(`<BR>${product.barcode}`);
-  lines.push("<BR><CUT>");
+  if (template.showCategory) lines.push(`<C>分類：${product.category}</C><BR>`);
+  if (template.showSpec) lines.push(`<C>規格：600ml</C><BR>`);
+  if (template.showUpdatedDate) lines.push("<C>更新：2026-06-12</C><BR>");
+
+  lines.push("<BR>");
+  lines.push(`<CB>售價 NT$ ${product.price}</CB>`);
+  lines.push("<BR>");
+
+  if (template.showBarcode) {
+    lines.push(`<C>${product.barcode}</C>`);
+    lines.push("<BR>");
+  }
+
+  lines.push("<BR>");
+  lines.push("<BR>");
+  lines.push("<BR>");
+
+  if (printer?.cutterEnabled) {
+    lines.push("<CUT>");
+  }
 
   return lines.join("");
 }
@@ -1220,11 +1238,24 @@ function LabelPrinter({
         </CardContent>
       </Card>
       <Card className="rounded-2xl shadow-sm">
-        <CardHeader><CardTitle>4 × 6 cm 貨卡預覽</CardTitle><CardDescription>目前使用模板：{activeTemplate?.name ?? "未設定模板"}</CardDescription></CardHeader>
+        <CardHeader><CardTitle>列印預覽</CardTitle><CardDescription>目前使用模板：{activeTemplate?.name ?? "未設定模板"}｜此預覽會盡量貼近飛鵝小票機實際輸出。</CardDescription></CardHeader>
         <CardContent className="space-y-4">
           <motion.div layout>
             <ReceiptLabelPreview storeName={storeName} product={selected} showSpec={activeTemplate?.showSpec ?? false} showCategory={activeTemplate?.showCategory ?? true} showUpdatedDate={activeTemplate?.showUpdatedDate ?? false} priceClassName={priceClassMap[activeTemplate?.priceSize ?? "lg"]} />
           </motion.div>
+          <div className="rounded-2xl border bg-white p-4 text-sm leading-6 text-slate-800">
+            <div className="text-xs uppercase tracking-[0.2em] text-slate-500">實際小票機輸出參考</div>
+            <div className="mt-3 text-center font-semibold">{normalizeStoreName(storeName)}</div>
+            <div className="mt-2 text-center text-lg font-bold">{selected.name}</div>
+            {activeTemplate?.showCategory ? <div className="mt-2 text-center">分類：{selected.category}</div> : null}
+            {activeTemplate?.showSpec ? <div className="text-center">規格：600ml</div> : null}
+            {activeTemplate?.showUpdatedDate ? <div className="text-center">更新：2026-06-12</div> : null}
+            <div className="mt-4 text-center text-2xl font-bold">售價 NT$ {selected.price}</div>
+            {activeTemplate?.showBarcode ? <div className="mt-3 text-center tracking-wide">{selected.barcode}</div> : null}
+            <div className="mt-4 border-t border-dashed pt-3 text-center text-xs text-slate-500">
+              切刀前預留 3 行空白
+            </div>
+          </div>
           <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
             目前商品：{selected.name}
           </div>
@@ -2017,6 +2048,7 @@ export default function SupermarketInventoryFrontendPrototype() {
             storeName: settings.storeName,
             product,
             template,
+            printer,
           }),
         }),
       });
