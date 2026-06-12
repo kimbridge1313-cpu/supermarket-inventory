@@ -32,7 +32,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { motion } from "framer-motion";
 import Barcode from "react-barcode";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, query, where, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 type HistoryRecord = {
@@ -846,7 +846,7 @@ function ProductActionModal({
   action: ProductAction;
   suppliers: Supplier[];
   onClose: () => void;
-  onSaveEdit: (originalBarcode: string, patch: EditableProductFields) => void;
+  onSaveEdit: (originalBarcode: string, patch: EditableProductFields) => Promise<void> | void;
 }) {
   const [editForm, setEditForm] = useState<EditableProductFields | null>(null);
 
@@ -1022,8 +1022,10 @@ function ProductActionModal({
           </Button>
           <Button
             className="rounded-xl"
-            onClick={() => {
-              if (isEdit && editForm) onSaveEdit(action.product.barcode, editForm);
+            onClick={async () => {
+              if (isEdit && editForm) {
+                await onSaveEdit(action.product.barcode, editForm);
+              }
               onClose();
             }}
           >
@@ -1233,7 +1235,7 @@ function ProductMaster({
 }: {
   products: Product[];
   suppliers: Supplier[];
-  onSaveEdit: (barcode: string, patch: EditableProductFields) => void;
+  onSaveEdit: (barcode: string, patch: EditableProductFields) => Promise<void> | void;
 }) {
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState<string>(products[0]?.barcode ?? "");
@@ -3128,12 +3130,37 @@ export default function SupermarketInventoryFrontendPrototype() {
   const lowStockCount = getLowStockCount(products, 10);
   const supplierCount = getActiveSupplierCount(suppliers);
 
-  const saveProductEdit = (originalBarcode: string, patch: EditableProductFields) => {
+  const saveProductEdit = async (
+    originalBarcode: string,
+    patch: EditableProductFields
+  ) => {
     setProducts((prev) =>
       prev.map((product) =>
         product.barcode === originalBarcode ? { ...product, ...patch } : product
       )
     );
+
+    try {
+      const productQuery = query(
+        collection(db, "products"),
+        where("barcode", "==", originalBarcode)
+      );
+      const snapshot = await getDocs(productQuery);
+
+      if (!snapshot.empty) {
+        await updateDoc(snapshot.docs[0].ref, {
+          name: patch.name,
+          barcode: patch.barcode,
+          category: patch.category,
+          supplier: patch.supplier,
+          cost: patch.cost,
+          price: patch.price,
+          untaxed: patch.untaxed,
+        });
+      }
+    } catch (error) {
+      console.error("save product failed", error);
+    }
   };
 
   return (
