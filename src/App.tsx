@@ -729,7 +729,7 @@ function CompactBatchNumberInput({
           e.currentTarget.blur();
         }
       }}
-      className="h-8 w-[52px] min-w-[52px] max-w-[52px] rounded-md px-2 text-left [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+      className="h-8 w-[48px] min-w-[48px] max-w-[48px] rounded-md px-1.5 text-left [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
     />
   );
 }
@@ -748,20 +748,19 @@ function BatchTable({
   onDelete?: (index: number) => void;
 }) {
   const batchGridTemplate =
-    "minmax(176px, 1fr) minmax(56px, 1fr) minmax(56px, 1fr) minmax(104px, 1.1fr) 32px minmax(0px, 1fr)";
+    "minmax(180px, 1.8fr) minmax(56px, 0.55fr) minmax(64px, 0.62fr) minmax(96px, 0.82fr) 32px";
 
   return (
     <div className="w-full overflow-x-auto rounded-xl border bg-white">
-      <div className="min-w-[408px]">
+      <div className="min-w-[440px]">
         <div
           className="grid border-b bg-slate-50 text-left text-sm"
           style={{ gridTemplateColumns: batchGridTemplate }}
         >
           <div className="pl-3 pr-2 py-3 font-medium">商品</div>
           <div className="px-1 py-3 font-medium">數量</div>
-          <div className="pl-1 pr-3 py-3 font-medium">單價</div>
-          <div className="pl-4 pr-1 py-3 font-medium">小計</div>
-          <div className="px-0 py-3 font-medium"></div>
+          <div className="pl-1 pr-4 py-3 font-medium">單價</div>
+          <div className="pl-5 pr-1 py-3 font-medium">小計</div>
           <div className="px-0 py-3 font-medium"></div>
         </div>
 
@@ -772,20 +771,20 @@ function BatchTable({
               className="grid items-start border-t text-sm first:border-t-0"
               style={{ gridTemplateColumns: batchGridTemplate }}
             >
-              <div className="min-w-0 pl-3 pr-2 py-3">
+              <div className="min-w-0 pl-3 pr-1.5 py-2.5">
                 <div className="font-medium leading-snug">{line.product}</div>
                 <div className="mt-1 text-[11px] text-muted-foreground">
                   {line.barcode}｜{line.supplier}
                 </div>
               </div>
-              <div className="pl-1 pr-3 py-3">
+              <div className="pl-1 pr-3 py-2.5">
                 <CompactBatchNumberInput
                   value={line.qty}
                   readOnly={!editable}
                   onChange={editable && onQtyChange ? (value) => onQtyChange(index, value) : undefined}
                 />
               </div>
-              <div className="pl-1 pr-3 py-3">
+              <div className="pl-1 pr-3 py-2.5">
                 <CompactBatchNumberInput
                   value={line.price}
                   readOnly={!editable}
@@ -794,18 +793,17 @@ function BatchTable({
                   }
                 />
               </div>
-              <div className="pl-4 pr-1 py-3 font-medium whitespace-nowrap">NT$ {line.amount}</div>
-              <div className="flex justify-center px-0 py-3">
+              <div className="pl-5 pr-1 py-2.5 font-medium whitespace-nowrap">NT$ {line.amount}</div>
+              <div className="flex justify-center px-0 py-2.5">
                 <Button
                   variant="outline"
                   size="icon"
-                  className="h-6 w-6 rounded-md"
+                  className="h-5 w-5 rounded-md"
                   onClick={() => onDelete?.(index)}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
-              <div className="px-0 py-3"></div>
             </div>
           ))}
         </div>
@@ -1436,8 +1434,8 @@ function InboundWorkbench({ products }: { products: Product[] }) {
   }));
 
   return (
-    <div className="mx-auto w-full max-w-[960px] min-w-0 pb-20 lg:pb-0">
-      <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+    <div className="w-full min-w-0 pb-20 lg:pb-0">
+      <div className="grid w-full gap-5 xl:grid-cols-[300px_minmax(560px,1fr)]">
         <Card className="rounded-2xl shadow-sm">
           <CardHeader>
             <CardTitle>進貨作業</CardTitle>
