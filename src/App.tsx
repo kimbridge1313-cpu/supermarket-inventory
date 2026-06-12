@@ -77,6 +77,7 @@ type BatchLine = {
 };
 
 type BatchRecord = {
+  docId?: string;
   id: string;
   date: string;
   supplier: string;
@@ -1305,8 +1306,9 @@ function ProductMaster({
     ]);
     const csv = [headers, ...rows]
       .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+      .join("
+");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -1321,7 +1323,9 @@ function ProductMaster({
     reader.onload = async () => {
       const text = String(reader.result ?? "").trim();
       if (!text) return;
-      const lines = text.replace(/^\ufeff/, "").split(/\r?\n/).filter(Boolean);
+      const lines = text.replace(/^﻿/, "").split(/
+?
+/).filter(Boolean);
       if (lines.length <= 1) return;
       const parseCell = (cell: string) =>
         cell.replace(/^"|"$/g, "").replace(/""/g, '"').trim();
@@ -1684,7 +1688,13 @@ function InboundQtyModal({
   );
 }
 
-function InboundWorkbench({ products }: { products: Product[] }) {
+function InboundWorkbench({
+  products,
+  onSaveBatch,
+}: {
+  products: Product[];
+  onSaveBatch: (items: FlowItem[]) => Promise<void> | void;
+}) {
   const [scanInput, setScanInput] = useState<string>(products[0]?.barcode ?? "");
   const [items, setItems] = useState<FlowItem[]>(
     products.length >= 3
@@ -1842,7 +1852,17 @@ function InboundWorkbench({ products }: { products: Product[] }) {
             <div className="px-2 pt-2 text-[11px] text-muted-foreground">
               可左右滑動查看完整欄位
             </div>
-            <Button className="w-full rounded-xl">儲存本批紀錄</Button>
+            <Button
+              className="w-full rounded-xl"
+              onClick={async () => {
+                await onSaveBatch(items);
+                setItems([]);
+                setScanNotice("本批紀錄已儲存");
+              }}
+              disabled={items.length === 0}
+            >
+              儲存本批紀錄
+            </Button>
           </CardContent>
         </Card>
 
@@ -3546,6 +3566,91 @@ export default function SupermarketInventoryFrontendPrototype() {
     }
   };
 
+  const saveInboundBatch = async (items: FlowItem[]) => {
+    if (items.length === 0) return;
+
+    const now = new Date();
+    const date = now.toISOString().slice(0, 10);
+    const batchId = `BATCH-${date.replace(/-/g, "")}-${String(batchRecords.length + 1).padStart(3, "0")}`;
+    const totalAmount = calculateTotal(items);
+    const supplierName = items[0]?.supplier ?? "未指定廠商";
+
+    const nextRecord: BatchRecord = {
+      id: batchId,
+      date,
+      supplier: supplierName,
+      totalAmount,
+      itemCount: items.length,
+      lines: items.map((item) => ({
+        barcode: item.barcode,
+        product: item.name,
+        supplier: item.supplier,
+        qty: item.qty,
+        price: item.price,
+        amount: item.amount,
+      })),
+    };
+
+    try {
+      const batchDocRef = await addDoc(collection(db, "batchRecords"), {
+        id: batchId,
+        date,
+        supplier: supplierName,
+        totalAmount,
+        itemCount: items.length,
+        lines: nextRecord.lines,
+      });
+
+      setBatchRecords((prev) => [{ ...nextRecord, docId: batchDocRef.id }, ...prev]);
+
+      const productMap = new Map(products.map((product) => [product.barcode, product]));
+
+      for (const item of items) {
+        const targetProduct = productMap.get(item.barcode);
+        if (!targetProduct?.docId) continue;
+
+        const nextHistory = [
+          {
+            date,
+            type: item.qty >= 0 ? "進貨" : "退貨",
+            qty: item.qty,
+            price: item.price,
+            amount: item.amount,
+          },
+          ...(Array.isArray(targetProduct.history) ? targetProduct.history : []),
+        ];
+
+        await updateDoc(doc(collection(db, "products"), targetProduct.docId), {
+          stock: targetProduct.stock + item.qty,
+          history: nextHistory,
+        });
+      }
+
+      setProducts((prev) =>
+        prev.map((product) => {
+          const matched = items.find((item) => item.barcode === product.barcode);
+          if (!matched) return product;
+          return {
+            ...product,
+            stock: product.stock + matched.qty,
+            history: [
+              {
+                date,
+                type: matched.qty >= 0 ? "進貨" : "退貨",
+                qty: matched.qty,
+                price: matched.price,
+                amount: matched.amount,
+              },
+              ...product.history,
+            ],
+          };
+        })
+      );
+    } catch (error) {
+      console.error("save inbound batch failed", error);
+    }
+  };
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-900">
       <div className="mx-auto grid min-h-screen max-w-7xl lg:grid-cols-[260px_1fr]">
@@ -3621,7 +3726,9 @@ export default function SupermarketInventoryFrontendPrototype() {
                   onImportProducts={importProducts}
                 />
               ) : null}
-              {active === "inbound" ? <InboundWorkbench products={products} /> : null}
+              {active === "inbound" ? (
+                <InboundWorkbench products={products} onSaveBatch={saveInboundBatch} />
+              ) : null}
               {active === "stock" ? <StockQuery products={products} /> : null}
               {active === "labels" ? (
                 <LabelPrinter products={products} storeName={storeName} />
