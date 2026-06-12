@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ScanLine,
   Package,
@@ -32,7 +32,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { motion } from "framer-motion";
 import Barcode from "react-barcode";
-import { collection, doc, getDocs, query, where, updateDoc } from "firebase/firestore";
+import { addDoc, collection, doc, getDocs, query, where, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 type HistoryRecord = {
@@ -143,6 +143,19 @@ type ProductAction =
       product: Product;
     }
   | null;
+
+type NewProductFields = {
+  barcode: string;
+  name: string;
+  category: string;
+  supplier: string;
+  cost: number;
+  price: number;
+  untaxed: number;
+  stock: number;
+};
+
+type ImportProductFields = NewProductFields;
 
 type EditableProductFields = Pick<
   Product,
@@ -1233,14 +1246,33 @@ function ProductMaster({
   products,
   suppliers,
   onSaveEdit,
+  onCreateProduct,
+  onImportProducts,
 }: {
   products: Product[];
   suppliers: Supplier[];
   onSaveEdit: (barcode: string, patch: EditableProductFields) => Promise<void> | void;
+  onCreateProduct: (payload: NewProductFields) => Promise<void> | void;
+  onImportProducts: (payload: ImportProductFields[]) => Promise<void> | void;
 }) {
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState<string>(products[0]?.barcode ?? "");
   const [productAction, setProductAction] = useState<ProductAction>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanValue, setScanValue] = useState("");
+  const [scanNotice, setScanNotice] = useState("");
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const [createForm, setCreateForm] = useState<NewProductFields>({
+    barcode: "",
+    name: "",
+    category: "",
+    supplier: suppliers.find((supplier) => supplier.active)?.name ?? "",
+    cost: 0,
+    price: 0,
+    untaxed: 0,
+    stock: 0,
+  });
 
   const filtered = useMemo(() => {
     const q = query.trim();
@@ -1249,6 +1281,86 @@ function ProductMaster({
       (p) => p.name.includes(q) || p.barcode.includes(q) || p.supplier.includes(q)
     );
   }, [products, query]);
+
+  const exportProducts = () => {
+    const headers = [
+      "barcode",
+      "name",
+      "category",
+      "supplier",
+      "cost",
+      "price",
+      "untaxed",
+      "stock",
+    ];
+    const rows = products.map((product) => [
+      product.barcode,
+      product.name,
+      product.category,
+      product.supplier,
+      product.cost,
+      product.price,
+      product.untaxed,
+      product.stock,
+    ]);
+    const csv = [headers, ...rows]
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "products-export.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importProducts = (file: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const text = String(reader.result ?? "").trim();
+      if (!text) return;
+      const lines = text.replace(/^\ufeff/, "").split(/\r?\n/).filter(Boolean);
+      if (lines.length <= 1) return;
+      const parseCell = (cell: string) =>
+        cell.replace(/^"|"$/g, "").replace(/""/g, '"').trim();
+      const rows = lines.slice(1).map((line) => {
+        const parts = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(parseCell);
+        return {
+          barcode: parts[0] || "",
+          name: parts[1] || "",
+          category: parts[2] || "",
+          supplier: parts[3] || suppliers.find((supplier) => supplier.active)?.name || "",
+          cost: Number(parts[4] || 0),
+          price: Number(parts[5] || 0),
+          untaxed: Number(parts[6] || 0),
+          stock: Number(parts[7] || 0),
+        } as ImportProductFields;
+      }).filter((item) => item.barcode && item.name);
+      if (rows.length > 0) {
+        await onImportProducts(rows);
+      }
+    };
+    reader.readAsText(file, "utf-8");
+  };
+
+  const handleScanSearch = () => {
+    const normalized = scanValue.trim();
+    if (!normalized) return;
+    const matched = products.find(
+      (product) => product.barcode.includes(normalized) || product.name.includes(normalized)
+    );
+    if (!matched) {
+      setScanNotice(`找不到商品：${normalized}`);
+      return;
+    }
+    setQuery(matched.barcode);
+    setOpenId(matched.barcode);
+    setScanNotice(`已找到：${matched.name}`);
+    setScanOpen(false);
+    setScanValue("");
+  };
 
   return (
     <div className="pb-20 lg:pb-0">
@@ -1268,19 +1380,44 @@ function ProductMaster({
                 placeholder="搜尋商品名稱 / 條碼 / 廠商"
               />
             </div>
-            <Button variant="outline" className="gap-2 rounded-xl">
+            <Button
+              variant="outline"
+              className="gap-2 rounded-xl"
+              onClick={() => {
+                setScanOpen(true);
+                setScanNotice("");
+              }}
+            >
               <ScanLine className="h-4 w-4" />掃碼
             </Button>
-            <Button className="gap-2 rounded-xl">
+            <Button className="gap-2 rounded-xl" onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4" />新增
             </Button>
-            <Button variant="outline" className="gap-2 rounded-xl">
-              <Upload className="h-4 w-4" />匯入
-            </Button>
-            <Button variant="outline" className="gap-2 rounded-xl">
+            <label className="inline-flex">
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={(e) => {
+                  importProducts(e.target.files?.[0] ?? null);
+                  e.currentTarget.value = "";
+                }}
+              />
+              <span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer">
+                <Upload className="h-4 w-4" />匯入
+              </span>
+            </label>
+            <Button variant="outline" className="gap-2 rounded-xl" onClick={exportProducts}>
               <Download className="h-4 w-4" />匯出
             </Button>
           </div>
+
+          {scanNotice ? (
+            <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
+              {scanNotice}
+            </div>
+          ) : null}
 
           <div className="space-y-3">
             {filtered.map((item) => {
@@ -1306,6 +1443,173 @@ function ProductMaster({
             onClose={() => setProductAction(null)}
             onSaveEdit={onSaveEdit}
           />
+
+          {scanOpen ? (
+            <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 lg:items-center">
+              <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
+                <div className="border-b p-4">
+                  <div className="text-lg font-semibold">掃碼查詢商品</div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    先用輸入條碼模擬掃碼，找到後會自動展開商品。
+                  </div>
+                </div>
+                <div className="space-y-3 p-4">
+                  <Input
+                    value={scanValue}
+                    onChange={(e) => setScanValue(e.target.value)}
+                    placeholder="輸入條碼或商品名稱"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleScanSearch();
+                    }}
+                    autoFocus
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2 border-t p-4">
+                  <Button variant="outline" className="rounded-xl" onClick={() => setScanOpen(false)}>
+                    取消
+                  </Button>
+                  <Button className="rounded-xl" onClick={handleScanSearch}>
+                    搜尋
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {createOpen ? (
+            <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 lg:items-center">
+              <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
+                <div className="border-b p-4">
+                  <div className="text-lg font-semibold">新增商品</div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    新增後會直接寫入 Firebase 商品主檔。
+                  </div>
+                </div>
+
+                <div className="space-y-3 p-4 text-sm">
+                  <div className="rounded-xl border p-3">
+                    <div className="text-xs text-muted-foreground">商品名稱</div>
+                    <Input
+                      value={createForm.name}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({ ...prev, name: e.target.value }))
+                      }
+                      className="mt-2"
+                    />
+                  </div>
+                  <div className="rounded-xl border p-3">
+                    <div className="text-xs text-muted-foreground">商品條碼</div>
+                    <Input
+                      value={createForm.barcode}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({ ...prev, barcode: e.target.value }))
+                      }
+                      className="mt-2"
+                    />
+                  </div>
+                  <div className="rounded-xl border p-3">
+                    <div className="text-xs text-muted-foreground">分類</div>
+                    <Input
+                      value={createForm.category}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({ ...prev, category: e.target.value }))
+                      }
+                      className="mt-2"
+                    />
+                  </div>
+                  <div className="rounded-xl border p-3">
+                    <div className="text-xs text-muted-foreground">廠商</div>
+                    <select
+                      value={createForm.supplier}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({ ...prev, supplier: e.target.value }))
+                      }
+                      className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      {suppliers
+                        .filter((supplier) => supplier.active)
+                        .map((supplier) => (
+                          <option key={supplier.id} value={supplier.name}>
+                            {supplier.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-xl border p-3">
+                      <div className="text-xs text-muted-foreground">主檔進貨價</div>
+                      <Input
+                        type="number"
+                        value={createForm.cost}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({ ...prev, cost: Number(e.target.value) }))
+                        }
+                        className="mt-2"
+                      />
+                    </div>
+                    <div className="rounded-xl border p-3">
+                      <div className="text-xs text-muted-foreground">販售價</div>
+                      <Input
+                        type="number"
+                        value={createForm.price}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({ ...prev, price: Number(e.target.value) }))
+                        }
+                        className="mt-2"
+                      />
+                    </div>
+                    <div className="rounded-xl border p-3">
+                      <div className="text-xs text-muted-foreground">未稅價</div>
+                      <Input
+                        type="number"
+                        value={createForm.untaxed}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({ ...prev, untaxed: Number(e.target.value) }))
+                        }
+                        className="mt-2"
+                      />
+                    </div>
+                    <div className="rounded-xl border p-3">
+                      <div className="text-xs text-muted-foreground">庫存</div>
+                      <Input
+                        type="number"
+                        value={createForm.stock}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({ ...prev, stock: Number(e.target.value) }))
+                        }
+                        className="mt-2"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 border-t p-4">
+                  <Button variant="outline" className="rounded-xl" onClick={() => setCreateOpen(false)}>
+                    取消
+                  </Button>
+                  <Button
+                    className="rounded-xl"
+                    onClick={async () => {
+                      await onCreateProduct(createForm);
+                      setCreateOpen(false);
+                      setCreateForm({
+                        barcode: "",
+                        name: "",
+                        category: "",
+                        supplier: suppliers.find((supplier) => supplier.active)?.name ?? "",
+                        cost: 0,
+                        price: 0,
+                        untaxed: 0,
+                        stock: 0,
+                      });
+                    }}
+                  >
+                    儲存新增
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
     </div>
@@ -3180,6 +3484,68 @@ export default function SupermarketInventoryFrontendPrototype() {
     }
   };
 
+  const createProduct = async (payload: NewProductFields) => {
+    const nextProduct: Product = {
+      barcode: payload.barcode,
+      name: payload.name,
+      category: payload.category,
+      supplier: payload.supplier,
+      cost: payload.cost,
+      price: payload.price,
+      untaxed: payload.untaxed,
+      stock: payload.stock,
+      history: [],
+    };
+
+    try {
+      const docRef = await addDoc(collection(db, "products"), {
+        barcode: payload.barcode,
+        name: payload.name,
+        category: payload.category,
+        supplier: payload.supplier,
+        cost: payload.cost,
+        price: payload.price,
+        untaxed: payload.untaxed,
+        stock: payload.stock,
+        history: [],
+      });
+
+      setProducts((prev) => [{ ...nextProduct, docId: docRef.id }, ...prev]);
+    } catch (error) {
+      console.error("create product failed", error);
+    }
+  };
+
+  const importProducts = async (payload: ImportProductFields[]) => {
+    try {
+      const createdProducts: Product[] = [];
+      for (const item of payload) {
+        const docRef = await addDoc(collection(db, "products"), {
+          barcode: item.barcode,
+          name: item.name,
+          category: item.category,
+          supplier: item.supplier,
+          cost: item.cost,
+          price: item.price,
+          untaxed: item.untaxed,
+          stock: item.stock,
+          history: [],
+        });
+        createdProducts.push({
+          ...item,
+          history: [],
+          docId: docRef.id,
+        });
+      }
+
+      if (createdProducts.length > 0) {
+        setProducts((prev) => [...createdProducts, ...prev]);
+      }
+    } catch (error) {
+      console.error("import products failed", error);
+    }
+  };
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-900">
       <div className="mx-auto grid min-h-screen max-w-7xl lg:grid-cols-[260px_1fr]">
@@ -3251,6 +3617,8 @@ export default function SupermarketInventoryFrontendPrototype() {
                   products={products}
                   suppliers={suppliers}
                   onSaveEdit={saveProductEdit}
+                  onCreateProduct={createProduct}
+                  onImportProducts={importProducts}
                 />
               ) : null}
               {active === "inbound" ? <InboundWorkbench products={products} /> : null}
