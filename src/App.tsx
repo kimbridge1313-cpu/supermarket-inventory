@@ -1171,12 +1171,14 @@ function LabelPrinter({
   storeName,
   templates,
   printerDevices,
+  settings,
   onPrintLabel,
 }: {
   products: Product[];
   storeName: string;
   templates: LabelTemplate[];
   printerDevices: PrinterDevice[];
+  settings: SystemSettings;
   onPrintLabel: (payload: {
     product: Product;
     template: LabelTemplate;
@@ -1201,9 +1203,6 @@ function LabelPrinter({
       : !defaultPrinter.isDefault
         ? "目前沒有預設設備，已暫用第一台設備"
         : "";
-  const printBlockedReason = !settings : !defaultPrinter.isDefault
-        ? "目前沒有預設設備，已暫用第一台設備"
-        : "";
   const printBlockedReason = !settings.feieUser
     ? "尚未填寫飛鵝 user"
     : !settings.feieUkey
@@ -1224,7 +1223,18 @@ function LabelPrinter({
         <CardHeader><CardTitle>4 × 6 cm 貨卡預覽</CardTitle><CardDescription>目前使用模板：{activeTemplate?.name ?? "未設定模板"}</CardDescription></CardHeader>
         <CardContent className="space-y-4">
           <motion.div layout>
-            <ReceiptLabelPreview storeName={storeName} product={selected} showSpec={activeTemplate?.showSpec ?? false} showCategory={activeTemplate?.showCategory ?? true} showUpdatedDate={activeTemplate?.showUpdatedDate ??d-xl border px-3 py-2 text-sm text-muted-foreground">
+            <ReceiptLabelPreview storeName={storeName} product={selected} showSpec={activeTemplate?.showSpec ?? false} showCategory={activeTemplate?.showCategory ?? true} showUpdatedDate={activeTemplate?.showUpdatedDate ?? false} priceClassName={priceClassMap[activeTemplate?.priceSize ?? "lg"]} />
+          </motion.div>
+          <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
+            目前商品：{selected.name}
+          </div>
+          <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
+            目前模板：{activeTemplate?.name ?? "未設定模板"}
+          </div>
+          <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
+            列印設備：{defaultPrinter ? `${defaultPrinter.name}｜${defaultPrinter.model}｜SN:${defaultPrinter.deviceId || "未填"}` : "未設定"}
+          </div>
+          <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
             飛鵝設定：user {settings.feieUser ? "已填" : "未填"}｜UKEY {settings.feieUkey ? "已填" : "未填"}
           </div>
           <div className={`rounded-xl border px-3 py-2 text-sm ${printBlockedReason ? "text-red-600" : "text-emerald-600"}`}>
@@ -1245,9 +1255,14 @@ function LabelPrinter({
                 });
                 setPrintNotice(result.ok ? `已送出列印，訂單號：${result.orderId ?? "-"}` : result.message);
               } catch (error) {
-                console   setPrintNotice("送出列印失敗");
+                console.error("print label failed", error);
+                setPrintNotice("送出列印失敗");
               } finally {
-        ame="h-4 w-4" />{printing ? "送出中..." : "送出列印"}
+                setPrinting(false);
+              }
+            }}
+          >
+            <Printer className="h-4 w-4" />{printing ? "送出中..." : "送出列印"}
           </Button>
         </CardContent>
       </Card>
@@ -1274,7 +1289,7 @@ function ProductPickerModal({
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-4 lg:items-center">
       <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl">
-        <div className="flex items-center justify-批次</div><div className="text-sm text-muted-foreground">可手動輸入搜尋，也可用掃碼方式帶入商品。</div></div><Button variant="outline" className="rounded-xl" onClick={onClose}>關閉</Button></div>
+        <div className="flex items-center justify-between border-b p-4"><div><div className="font-medium">新增商品到批次</div><div className="text-sm text-muted-foreground">可手動輸入搜尋，也可用掃碼方式帶入商品。</div></div><Button variant="outline" className="rounded-xl" onClick={onClose}>關閉</Button></div>
         <div className="space-y-4 p-4">
           <div className="flex gap-2"><Input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="搜尋商品名稱 / 條碼 / 廠商" /><Button variant="outline" className="gap-2 rounded-xl"><ScanLine className="h-4 w-4" />掃碼</Button></div>
           <div className="max-h-[360px] space-y-3 overflow-y-auto pr-1">
@@ -2106,6 +2121,7 @@ export default function SupermarketInventoryFrontendPrototype() {
                   storeName={settings.storeName}
                   templates={templates}
                   printerDevices={printerDevices}
+                  settings={settings}
                   onPrintLabel={sendPrintJob}
                 />
               ) : null}
