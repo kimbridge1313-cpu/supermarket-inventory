@@ -495,7 +495,7 @@ function buildFeieReceiptContent({
     lines.push(`規格：600ml`);
   }
 
-  lines.push(`<RIGHT><W><B>${product.price}</B></W>元</RIGHT>`);
+  lines.push(`<RIGHT><B><B>${product.price}</B></B>元</RIGHT>`);
 
   return lines.join("<BR>");
 }
