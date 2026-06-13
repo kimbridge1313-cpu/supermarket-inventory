@@ -489,13 +489,13 @@ function buildFeieReceiptContent({
   }
 
   lines.push(normalizeStoreName(storeName));
-  lines.push(`<B>${product.name}</B>`);
+  lines.push(`${product.name}`);
 
   if (template.showSpec) {
     lines.push(`規格：600ml`);
   }
 
-  lines.push(`<RIGHT><W><B>${product.price}</B></W><BOLD>元</BOLD></RIGHT>`);
+  lines.push(`<RIGHT><L><W><BOLD>${product.price}</BOLD></W></L>元</RIGHT>`);
 
   return lines.join("<BR>");
 }
