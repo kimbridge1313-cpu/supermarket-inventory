@@ -498,10 +498,8 @@ function buildFeieReceiptContent({
   lines.push(`<RIGHT><W><B>${product.price}元</B></W></RIGHT><BR>`);
 
   if (template.showBarcode) {
-    lines.push(`${buildFeieBarcodeTag(product.barcode)}<BR>`);
+    lines.push(`${buildFeieBarcodeTag(product.barcode)}`);
   }
-
-  lines.push(`<BR><BR>`);
 
   return lines.join("");
 }
@@ -1181,34 +1179,34 @@ function ReceiptLabelPreview({
 }) {
   return (
     <div className="mx-auto w-full max-w-sm rounded-[8px] border bg-white shadow-sm">
-      <div className="flex min-h-[220px] flex-col px-4 pb-4 pt-2.5 text-black">
+      <div className="flex min-h-[190px] flex-col px-4 pb-3 pt-2 text-black">
         <div className="text-left text-[9px] font-medium tracking-[0.04em] text-black/65">
           {normalizeStoreName(storeName)}
         </div>
-        <div className="mt-2 text-left text-[30px] font-bold leading-[1.2]">
+        <div className="mt-1.5 text-left text-[26px] font-bold leading-[1.15]">
           {product.name}
         </div>
-        <div className="mt-3 space-y-1 leading-tight">
+        <div className="mt-2 space-y-0.5 leading-tight">
           {showSpec ? <div className="text-[15px] font-semibold">規格：600ml</div> : null}
           {showCategory ? <div className="text-[14px] font-medium">分類：{product.category}</div> : null}
           {showUpdatedDate ? <div className="text-[11px] text-black/70">更新：2026-06-12</div> : null}
         </div>
-        <div className="mt-auto flex items-end justify-between gap-4">
-          <div className="w-[54%] max-w-[220px]">
+        <div className="mt-auto space-y-2">
+          <div className="flex items-end justify-end gap-1 text-right">
+            <div className={`${priceClassName} font-black leading-[0.78] tracking-tight`}>
+              {product.price}
+            </div>
+            <div className="pb-0.5 text-[12px] font-bold leading-none">元</div>
+          </div>
+          <div className="w-[48%] max-w-[180px]">
             <BarcodeGraphic
               value={product.barcode}
-              width={0.74}
-              height={34}
-              fontSize={7}
+              width={0.68}
+              height={18}
+              fontSize={5}
               margin={0}
               wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
             />
-          </div>
-          <div className="flex items-end justify-end gap-1 text-right">
-            <div className={`${priceClassName} font-black leading-[0.82] tracking-tight`}>
-              {product.price}
-            </div>
-            <div className="pb-2 text-[26px] font-bold leading-none">元</div>
           </div>
         </div>
       </div>
@@ -1258,7 +1256,7 @@ function LabelPrinter({
     : !settings.feieUkey
       ? "尚未填寫飛鵝 UKEY"
       : missingPrintConfig;
-  const priceClassMap: Record<LabelTemplate["priceSize"], string> = { sm: "text-[60px]", md: "text-[84px]", lg: "text-[108px]" };
+  const priceClassMap: Record<LabelTemplate["priceSize"], string> = { sm: "text-[72px]", md: "text-[96px]", lg: "text-[124px]" };
 
   return (
     <div className="grid gap-4 pb-20 lg:grid-cols-[0.85fr_1.15fr] lg:pb-0">
@@ -1281,21 +1279,21 @@ function LabelPrinter({
             <div className="mt-1.5 text-left text-lg font-bold">{selected.name}</div>
             {activeTemplate?.showSpec ? <div className="mt-1.5 text-left">規格：600ml</div> : null}
             {activeTemplate?.showUpdatedDate ? <div className="text-left text-xs text-slate-500">更新：2026-06-12</div> : null}
-            <div className="mt-3 text-right text-[52px] font-black leading-none">{selected.price}<span className="ml-1 text-[18px] font-bold">元</span></div>
+            <div className="mt-2 text-right text-[64px] font-black leading-[0.82]">{selected.price}<span className="ml-1 text-[12px] font-bold">元</span></div>
             {activeTemplate?.showBarcode ? (
-              <div className="mt-4">
+              <div className="mt-2 w-[46%] max-w-[180px]">
                 <BarcodeGraphic
                   value={selected.barcode}
-                  width={0.9}
-                  height={34}
-                  fontSize={8}
+                  width={0.68}
+                  height={18}
+                  fontSize={5}
                   margin={0}
                   wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
                 />
               </div>
             ) : null}
-            <div className="mt-4 border-t border-dashed pt-3 text-center text-xs text-slate-500">
-              列印尾端僅保留 2 行留白
+            <div className="mt-3 border-t border-dashed pt-2 text-center text-xs text-slate-500">
+              目前已取消尾端額外留白
             </div>
           </div>
           <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
