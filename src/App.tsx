@@ -482,22 +482,21 @@ function buildFeieReceiptContent({
   template: LabelTemplate;
   printer: PrinterDevice | null;
 }) {
-  const textLines = [
-    `${normalizeStoreName(storeName)}`,
-    `<B>${product.name}</B>`,
-  ];
-
-  if (template.showSpec) {
-    textLines.push(`規格：600ml`);
-  }
+  const lines = [`${normalizeStoreName(storeName)}`];
 
   if (template.showBarcode) {
-    textLines.push(`${buildFeieBarcodeTag(product.barcode)}<RIGHT><W><B>${product.price}</B></W><BOLD>元</BOLD></RIGHT>`);
-    return textLines.join("<BR>");
+    lines.push(`<RIGHT>${buildFeieBarcodeTag(product.barcode)}</RIGHT>`);
   }
 
-  textLines.push(`<RIGHT><W><B>${product.price}</B></W><BOLD>元</BOLD></RIGHT>`);
-  return textLines.join("<BR>");
+  lines.push(`<B>${product.name}</B>`);
+
+  if (template.showSpec) {
+    lines.push(`規格：600ml`);
+  }
+
+  lines.push(`<RIGHT><W><B>${product.price}</B></W><BOLD>元</BOLD></RIGHT>`);
+
+  return lines.join("<BR>");
 }
 
 function BarcodeGraphic({
@@ -1187,24 +1186,22 @@ function ReceiptLabelPreview({
           {showCategory ? <div className="text-[14px] font-medium">分類：{product.category}</div> : null}
           {showUpdatedDate ? <div className="text-[11px] text-black/70">更新：2026-06-12</div> : null}
         </div>
-        <div className="mt-auto">
-          <div className="flex items-end justify-between gap-2">
-            <div className="-mt-1 w-[24%] max-w-[72px]">
-              <BarcodeGraphic
-                value={product.barcode}
-                width={0.28}
-                height={6}
-                fontSize={2}
-                margin={0}
-                wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
-              />
+        <div className="mt-auto space-y-0">
+          <div className="flex items-end justify-end gap-1 text-right">
+            <div className={`${priceClassName} font-black leading-[0.72] tracking-tight`}>
+              {product.price}
             </div>
-            <div className="flex items-end justify-end gap-1 text-right">
-              <div className={`${priceClassName} font-black leading-[0.72] tracking-tight`}>
-                {product.price}
-              </div>
-              <div className="pb-0 text-[8px] font-bold leading-none">元</div>
-            </div>
+            <div className="pb-0 text-[8px] font-bold leading-none">元</div>
+          </div>
+          <div className="-mt-1 w-[24%] max-w-[72px]">
+            <BarcodeGraphic
+              value={product.barcode}
+              width={0.28}
+              height={6}
+              fontSize={2}
+              margin={0}
+              wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
+            />
           </div>
         </div>
       </div>
@@ -1318,10 +1315,7 @@ function LabelPrinter({
             <div className="mt-0 text-left text-[8px] font-medium text-slate-500">
               {normalizeStoreName(storeName)}
             </div>
-            <div className="mt-0 text-left text-[15px] font-bold leading-[1.02]">
-              {selected.name}
-            </div>
-            <div className="mt-1 flex items-end justify-between gap-2">
+            <div className="mt-0 flex justify-end">
               {activeTemplate?.showBarcode ? (
                 <div className="w-[24%] max-w-[72px]">
                   <BarcodeGraphic
@@ -1333,13 +1327,14 @@ function LabelPrinter({
                     wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
                   />
                 </div>
-              ) : (
-                <div />
-              )}
-              <div className="text-right text-[82px] font-black leading-[0.72]">
-                {selected.price}
-                <span className="ml-0.5 text-[8px] font-bold">元</span>
-              </div>
+              ) : null}
+            </div>
+            <div className="mt-0 text-left text-[15px] font-bold leading-[1.02]">
+              {selected.name}
+            </div>
+            <div className="mt-1 text-right text-[82px] font-black leading-[0.72]">
+              {selected.price}
+              <span className="ml-0.5 text-[8px] font-bold">元</span>
             </div>
             <div className="mt-1 border-t border-dashed pt-1 text-center text-xs text-slate-500">
               已再壓縮頁頭與文字區高度
