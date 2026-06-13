@@ -495,7 +495,7 @@ function buildFeieReceiptContent({
     lines.push(`更新：2026-06-12<BR>`);
   }
 
-  lines.push(`<RIGHT><W><B>${product.price}元</B></W></RIGHT><BR>`);
+  lines.push(`<RIGHT><W><B>${product.price}</B></W>元</RIGHT><BR>`);
 
   if (template.showBarcode) {
     lines.push(`${buildFeieBarcodeTag(product.barcode)}`);
@@ -1179,31 +1179,31 @@ function ReceiptLabelPreview({
 }) {
   return (
     <div className="mx-auto w-full max-w-sm rounded-[8px] border bg-white shadow-sm">
-      <div className="flex min-h-[190px] flex-col px-4 pb-3 pt-2 text-black">
+      <div className="flex min-h-[172px] flex-col px-4 pb-2 pt-0.5 text-black">
         <div className="text-left text-[9px] font-medium tracking-[0.04em] text-black/65">
           {normalizeStoreName(storeName)}
         </div>
-        <div className="mt-1.5 text-left text-[26px] font-bold leading-[1.15]">
+        <div className="mt-0.5 text-left text-[24px] font-bold leading-[1.08]">
           {product.name}
         </div>
-        <div className="mt-2 space-y-0.5 leading-tight">
+        <div className="mt-1 space-y-0 leading-tight">
           {showSpec ? <div className="text-[15px] font-semibold">規格：600ml</div> : null}
           {showCategory ? <div className="text-[14px] font-medium">分類：{product.category}</div> : null}
           {showUpdatedDate ? <div className="text-[11px] text-black/70">更新：2026-06-12</div> : null}
         </div>
-        <div className="mt-auto space-y-2">
+        <div className="mt-auto space-y-1">
           <div className="flex items-end justify-end gap-1 text-right">
-            <div className={`${priceClassName} font-black leading-[0.78] tracking-tight`}>
+            <div className={`${priceClassName} font-black leading-[0.72] tracking-tight`}>
               {product.price}
             </div>
-            <div className="pb-0.5 text-[12px] font-bold leading-none">元</div>
+            <div className="pb-0 text-[8px] font-bold leading-none">元</div>
           </div>
-          <div className="w-[48%] max-w-[180px]">
+          <div className="w-[40%] max-w-[132px]">
             <BarcodeGraphic
               value={product.barcode}
-              width={0.68}
-              height={18}
-              fontSize={5}
+              width={0.56}
+              height={12}
+              fontSize={4}
               margin={0}
               wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
             />
@@ -1256,7 +1256,7 @@ function LabelPrinter({
     : !settings.feieUkey
       ? "尚未填寫飛鵝 UKEY"
       : missingPrintConfig;
-  const priceClassMap: Record<LabelTemplate["priceSize"], string> = { sm: "text-[72px]", md: "text-[96px]", lg: "text-[124px]" };
+  const priceClassMap: Record<LabelTemplate["priceSize"], string> = { sm: "text-[84px]", md: "text-[112px]", lg: "text-[144px]" };
 
   return (
     <div className="grid gap-4 pb-20 lg:grid-cols-[0.85fr_1.15fr] lg:pb-0">
@@ -1275,18 +1275,18 @@ function LabelPrinter({
           </motion.div>
           <div className="rounded-2xl border bg-white p-4 text-sm leading-6 text-slate-800">
             <div className="text-xs uppercase tracking-[0.2em] text-slate-500">實際小票機輸出參考</div>
-            <div className="mt-1 text-left text-[10px] font-medium text-slate-500">{normalizeStoreName(storeName)}</div>
-            <div className="mt-1.5 text-left text-lg font-bold">{selected.name}</div>
-            {activeTemplate?.showSpec ? <div className="mt-1.5 text-left">規格：600ml</div> : null}
+            <div className="mt-0 text-left text-[9px] font-medium text-slate-500">{normalizeStoreName(storeName)}</div>
+            <div className="mt-0.5 text-left text-[16px] font-bold leading-[1.08]">{selected.name}</div>
+            {activeTemplate?.showSpec ? <div className="mt-0.5 text-left text-[12px] leading-tight">規格：600ml</div> : null}
             {activeTemplate?.showUpdatedDate ? <div className="text-left text-xs text-slate-500">更新：2026-06-12</div> : null}
-            <div className="mt-2 text-right text-[64px] font-black leading-[0.82]">{selected.price}<span className="ml-1 text-[12px] font-bold">元</span></div>
+            <div className="mt-1 text-right text-[82px] font-black leading-[0.72]">{selected.price}<span className="ml-0.5 text-[8px] font-bold">元</span></div>
             {activeTemplate?.showBarcode ? (
-              <div className="mt-2 w-[46%] max-w-[180px]">
+              <div className="mt-1 w-[38%] max-w-[132px]">
                 <BarcodeGraphic
                   value={selected.barcode}
-                  width={0.68}
-                  height={18}
-                  fontSize={5}
+                  width={0.56}
+                  height={12}
+                  fontSize={4}
                   margin={0}
                   wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
                 />
