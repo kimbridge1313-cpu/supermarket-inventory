@@ -1183,12 +1183,12 @@ function ReceiptLabelPreview({
             </div>
             <div className="pb-0 text-[8px] font-bold leading-none">元</div>
           </div>
-          <div className="w-[40%] max-w-[132px]">
+          <div className="w-[24%] max-w-[72px]">
             <BarcodeGraphic
               value={product.barcode}
-              width={0.56}
-              height={12}
-              fontSize={4}
+              width={0.28}
+              height={6}
+              fontSize={2}
               margin={0}
               wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
             />
@@ -1264,12 +1264,12 @@ function LabelPrinter({
             <div className="mt-0.5 text-left text-[16px] font-bold leading-[1.08]">{selected.name}</div>
             <div className="mt-1 text-right text-[82px] font-black leading-[0.72]">{selected.price}<span className="ml-0.5 text-[8px] font-bold">元</span></div>
             {activeTemplate?.showBarcode ? (
-              <div className="mt-1 w-[38%] max-w-[132px]">
+              <div className="mt-1 w-[24%] max-w-[72px]">
                 <BarcodeGraphic
                   value={selected.barcode}
-                  width={0.56}
-                  height={12}
-                  fontSize={4}
+                  width={0.28}
+                  height={6}
+                  fontSize={2}
                   margin={0}
                   wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
                 />
