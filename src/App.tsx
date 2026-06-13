@@ -482,22 +482,22 @@ function buildFeieReceiptContent({
   template: LabelTemplate;
   printer: PrinterDevice | null;
 }) {
-  const lines = [
+  const textLines = [
     `${normalizeStoreName(storeName)}`,
+    `<B>${product.name}</B>`,
   ];
 
   if (template.showSpec) {
-    lines.push(`規格：600ml`);
+    textLines.push(`規格：600ml`);
   }
 
-  lines.push(`<B>${product.name}</B>`);
-  lines.push(`<RIGHT><W><B>${product.price}</B></W><BOLD>元</BOLD></RIGHT>`);
+  textLines.push(`<RIGHT><W><B>${product.price}</B></W><BOLD>元</BOLD></RIGHT>`);
 
   if (template.showBarcode) {
-    lines.push(buildFeieBarcodeTag(product.barcode));
+    return `${textLines.join("<BR>")}${buildFeieBarcodeTag(product.barcode)}`;
   }
 
-  return lines.join("<BR>");
+  return textLines.join("<BR>");
 }
 
 function BarcodeGraphic({
@@ -1187,14 +1187,14 @@ function ReceiptLabelPreview({
           {showCategory ? <div className="text-[14px] font-medium">分類：{product.category}</div> : null}
           {showUpdatedDate ? <div className="text-[11px] text-black/70">更新：2026-06-12</div> : null}
         </div>
-        <div className="mt-auto space-y-1">
+        <div className="mt-auto space-y-0">
           <div className="flex items-end justify-end gap-1 text-right">
             <div className={`${priceClassName} font-black leading-[0.72] tracking-tight`}>
               {product.price}
             </div>
             <div className="pb-0 text-[8px] font-bold leading-none">元</div>
           </div>
-          <div className="w-[24%] max-w-[72px]">
+          <div className="-mt-1 w-[24%] max-w-[72px]">
             <BarcodeGraphic
               value={product.barcode}
               width={0.28}
@@ -1275,7 +1275,7 @@ function LabelPrinter({
             <div className="mt-0.5 text-left text-[16px] font-bold leading-[1.08]">{selected.name}</div>
             <div className="mt-1 text-right text-[82px] font-black leading-[0.72]">{selected.price}<span className="ml-0.5 text-[8px] font-bold">元</span></div>
             {activeTemplate?.showBarcode ? (
-              <div className="mt-1 w-[24%] max-w-[72px]">
+              <div className="mt-0 w-[24%] max-w-[72px]">
                 <BarcodeGraphic
                   value={selected.barcode}
                   width={0.28}
@@ -1287,7 +1287,7 @@ function LabelPrinter({
               </div>
             ) : null}
             <div className="mt-2 border-t border-dashed pt-2 text-center text-xs text-slate-500">
-              實際列印已改成最短版：店名 / 商品 / 價格 / 一維條碼
+              已壓縮文字與條碼之間的空白
             </div>
           </div>
           <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">{printNotice}</div>
