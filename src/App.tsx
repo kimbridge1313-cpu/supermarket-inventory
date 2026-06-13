@@ -482,12 +482,13 @@ function buildFeieReceiptContent({
   template: LabelTemplate;
   printer: PrinterDevice | null;
 }) {
-  const lines = [`${normalizeStoreName(storeName)}`];
+  const lines: string[] = [];
 
   if (template.showBarcode) {
-    lines.push(`<RIGHT>${buildFeieBarcodeTag(product.barcode)}</RIGHT>`);
+    lines.push(buildFeieBarcodeTag(product.barcode));
   }
 
+  lines.push(normalizeStoreName(storeName));
   lines.push(`<B>${product.name}</B>`);
 
   if (template.showSpec) {
@@ -1315,20 +1316,6 @@ function LabelPrinter({
             <div className="mt-0 text-left text-[8px] font-medium text-slate-500">
               {normalizeStoreName(storeName)}
             </div>
-            <div className="mt-0 flex justify-end">
-              {activeTemplate?.showBarcode ? (
-                <div className="w-[24%] max-w-[72px]">
-                  <BarcodeGraphic
-                    value={selected.barcode}
-                    width={0.28}
-                    height={6}
-                    fontSize={2}
-                    margin={0}
-                    wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
-                  />
-                </div>
-              ) : null}
-            </div>
             <div className="mt-0 text-left text-[15px] font-bold leading-[1.02]">
               {selected.name}
             </div>
@@ -1336,8 +1323,20 @@ function LabelPrinter({
               {selected.price}
               <span className="ml-0.5 text-[8px] font-bold">元</span>
             </div>
+            {activeTemplate?.showBarcode ? (
+              <div className="mt-0 w-[24%] max-w-[72px]">
+                <BarcodeGraphic
+                  value={selected.barcode}
+                  width={0.28}
+                  height={6}
+                  fontSize={2}
+                  margin={0}
+                  wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
+                />
+              </div>
+            ) : null}
             <div className="mt-1 border-t border-dashed pt-1 text-center text-xs text-slate-500">
-              已再壓縮頁頭與文字區高度
+              已退回清楚版：價格在上、條碼在下
             </div>
           </div>
 
