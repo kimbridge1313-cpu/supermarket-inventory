@@ -483,25 +483,16 @@ function buildFeieReceiptContent({
   printer: PrinterDevice | null;
 }) {
   const lines = [
-    `${normalizeStoreName(storeName)}<BR>`,
-    `<B>${product.name}</B><BR>`,
+    `${normalizeStoreName(storeName)}`,
+    `<B>${product.name}</B>`,
+    `<RIGHT><W><B>${product.price}</B></W><BOLD>元</BOLD></RIGHT>`,
   ];
-
-  if (template.showSpec) {
-    lines.push(`規格：600ml<BR>`);
-  }
-
-  if (template.showUpdatedDate) {
-    lines.push(`更新：2026-06-12<BR>`);
-  }
-
-  lines.push(`<RIGHT><W><B>${product.price}</B></W>元</RIGHT><BR>`);
 
   if (template.showBarcode) {
     lines.push(`${buildFeieBarcodeTag(product.barcode)}`);
   }
 
-  return lines.join("");
+  return lines.join("<BR>");
 }
 
 function BarcodeGraphic({
@@ -1277,8 +1268,6 @@ function LabelPrinter({
             <div className="text-xs uppercase tracking-[0.2em] text-slate-500">實際小票機輸出參考</div>
             <div className="mt-0 text-left text-[9px] font-medium text-slate-500">{normalizeStoreName(storeName)}</div>
             <div className="mt-0.5 text-left text-[16px] font-bold leading-[1.08]">{selected.name}</div>
-            {activeTemplate?.showSpec ? <div className="mt-0.5 text-left text-[12px] leading-tight">規格：600ml</div> : null}
-            {activeTemplate?.showUpdatedDate ? <div className="text-left text-xs text-slate-500">更新：2026-06-12</div> : null}
             <div className="mt-1 text-right text-[82px] font-black leading-[0.72]">{selected.price}<span className="ml-0.5 text-[8px] font-bold">元</span></div>
             {activeTemplate?.showBarcode ? (
               <div className="mt-1 w-[38%] max-w-[132px]">
@@ -1292,24 +1281,9 @@ function LabelPrinter({
                 />
               </div>
             ) : null}
-            <div className="mt-3 border-t border-dashed pt-2 text-center text-xs text-slate-500">
-              目前已取消尾端額外留白
+            <div className="mt-2 border-t border-dashed pt-2 text-center text-xs text-slate-500">
+              實際列印已改成最短版：店名 / 商品 / 價格 / 一維條碼
             </div>
-          </div>
-          <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
-            目前商品：{selected.name}
-          </div>
-          <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
-            目前模板：{activeTemplate?.name ?? "未設定模板"}
-          </div>
-          <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
-            列印設備：{defaultPrinter ? `${defaultPrinter.name}｜${defaultPrinter.model}｜SN:${defaultPrinter.deviceId || "未填"}` : "未設定"}
-          </div>
-          <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
-            飛鵝設定：user {settings.feieUser ? "已填" : "未填"}｜UKEY {settings.feieUkey ? "已填" : "未填"}
-          </div>
-          <div className={`rounded-xl border px-3 py-2 text-sm ${printBlockedReason ? "text-red-600" : "text-emerald-600"}`}>
-            {printBlockedReason ? `目前不可列印：${printBlockedReason}` : "目前可送出列印"}
           </div>
           <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">{printNotice}</div>
           <Button
