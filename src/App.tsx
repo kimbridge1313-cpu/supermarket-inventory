@@ -483,7 +483,6 @@ function buildFeieReceiptContent({
   printer: PrinterDevice | null;
 }) {
   const lines = [
-    `${normalizeStoreName(storeName)}`,
     `<B>${product.name}</B>`,
     `<RIGHT><W><B>${product.price}</B></W><BOLD>元</BOLD></RIGHT>`,
   ];
