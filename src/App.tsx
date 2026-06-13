@@ -408,6 +408,27 @@ function normalizeStoreName(value: string): string {
   return value.trim() || "未設定門店";
 }
 
+function buildFeieBarcodeTag(value: string) {
+  const normalized = normalizeBarcodeValue(value);
+  const isDigitsOnly = new RegExp("^[0-9]+$").test(normalized);
+  const isUpperAlphaNumeric = new RegExp("^[0-9A-Z]+$").test(normalized);
+  const isMixedAlphaNumeric = new RegExp("^[0-9A-Za-z!@#$%^&*()\-=+_]+$").test(normalized);
+
+  if (isDigitsOnly && normalized.length <= 22) {
+    return `<BC128_C>${normalized}</BC128_C>`;
+  }
+
+  if (isUpperAlphaNumeric && normalized.length <= 14) {
+    return `<BC128_A>${normalized}</BC128_A>`;
+  }
+
+  if (isMixedAlphaNumeric && normalized.length <= 14) {
+    return `<BC128_B>${normalized}</BC128_B>`;
+  }
+
+  return normalized;
+}
+
 function buildFlowItem(product: Product, qty: number): FlowItem {
   return {
     name: product.name,
@@ -477,7 +498,7 @@ function buildFeieReceiptContent({
   lines.push(`<RIGHT><W><B>${product.price}元</B></W></RIGHT><BR>`);
 
   if (template.showBarcode) {
-    lines.push(`${product.barcode}<BR>`);
+    lines.push(`${buildFeieBarcodeTag(product.barcode)}<BR>`);
   }
 
   lines.push(`<BR><BR>`);
