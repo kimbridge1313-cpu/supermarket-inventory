@@ -1187,7 +1187,7 @@ function ReceiptLabelPreview({
           {showCategory ? <div className="text-[14px] font-medium">分類：{product.category}</div> : null}
           {showUpdatedDate ? <div className="text-[11px] text-black/70">更新：2026-06-12</div> : null}
         </div>
-        <div className="mt-auto space-y-0">
+        <div className="mt-auto">
           <div className="flex items-end justify-between gap-2">
             <div className="-mt-1 w-[24%] max-w-[72px]">
               <BarcodeGraphic
@@ -1233,13 +1233,21 @@ function LabelPrinter({
 }) {
   const [queryText, setQueryText] = useState("");
   const [selected, setSelected] = useState<Product>(products[0] ?? initialProducts[0]);
-  const activeTemplate = templates.find((template) => template.active) ?? templates[0] ?? initialLabelTemplates[0];
+  const activeTemplate =
+    templates.find((template) => template.active) ??
+    templates[0] ??
+    initialLabelTemplates[0];
   const filtered = useMemo(() => {
     const q = queryText.trim();
     if (!q) return products;
-    return products.filter((product) => product.name.includes(q) || product.barcode.includes(q));
+    return products.filter(
+      (product) => product.name.includes(q) || product.barcode.includes(q)
+    );
   }, [products, queryText]);
-  const defaultPrinter = printerDevices.find((device) => device.isDefault) ?? printerDevices[0] ?? null;
+  const defaultPrinter =
+    printerDevices.find((device) => device.isDefault) ??
+    printerDevices[0] ??
+    null;
   const [printing, setPrinting] = useState(false);
   const [printNotice, setPrintNotice] = useState("尚未送出列印");
   const missingPrintConfig = !defaultPrinter
@@ -1254,27 +1262,65 @@ function LabelPrinter({
     : !settings.feieUkey
       ? "尚未填寫飛鵝 UKEY"
       : missingPrintConfig;
-  const priceClassMap: Record<LabelTemplate["priceSize"], string> = { sm: "text-[84px]", md: "text-[112px]", lg: "text-[144px]" };
+  const priceClassMap: Record<LabelTemplate["priceSize"], string> = {
+    sm: "text-[84px]",
+    md: "text-[112px]",
+    lg: "text-[144px]",
+  };
 
   return (
     <div className="grid gap-4 pb-20 lg:grid-cols-[0.85fr_1.15fr] lg:pb-0">
       <Card className="rounded-2xl shadow-sm">
-        <CardHeader><CardTitle>貨卡列印</CardTitle><CardDescription>從商品搜尋進入，確認名稱與售價後送標籤機。</CardDescription></CardHeader>
+        <CardHeader>
+          <CardTitle>貨卡列印</CardTitle>
+          <CardDescription>從商品搜尋進入，確認名稱與售價後送標籤機。</CardDescription>
+        </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex gap-2"><Input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="搜尋商品 / 掃碼" /><Button variant="outline" className="gap-2 rounded-xl"><ScanLine className="h-4 w-4" />掃碼</Button></div>
-          {filtered.map((item) => <ProductRow key={item.barcode} item={item} onSelect={setSelected} />)}
+          <div className="flex gap-2">
+            <Input
+              value={queryText}
+              onChange={(e) => setQueryText(e.target.value)}
+              placeholder="搜尋商品 / 掃碼"
+            />
+            <Button variant="outline" className="gap-2 rounded-xl">
+              <ScanLine className="h-4 w-4" />掃碼
+            </Button>
+          </div>
+          {filtered.map((item) => (
+            <ProductRow key={item.barcode} item={item} onSelect={setSelected} />
+          ))}
         </CardContent>
       </Card>
+
       <Card className="rounded-2xl shadow-sm">
-        <CardHeader><CardTitle>列印預覽</CardTitle><CardDescription>目前使用模板：{activeTemplate?.name ?? "未設定模板"}｜此預覽會盡量貼近飛鵝小票機實際輸出。</CardDescription></CardHeader>
+        <CardHeader>
+          <CardTitle>列印預覽</CardTitle>
+          <CardDescription>
+            目前使用模板：{activeTemplate?.name ?? "未設定模板"}｜此預覽會盡量貼近飛鵝小票機實際輸出。
+          </CardDescription>
+        </CardHeader>
         <CardContent className="space-y-4">
           <motion.div layout>
-            <ReceiptLabelPreview storeName={storeName} product={selected} showSpec={activeTemplate?.showSpec ?? false} showCategory={activeTemplate?.showCategory ?? true} showUpdatedDate={activeTemplate?.showUpdatedDate ?? false} priceClassName={priceClassMap[activeTemplate?.priceSize ?? "lg"]} />
+            <ReceiptLabelPreview
+              storeName={storeName}
+              product={selected}
+              showSpec={activeTemplate?.showSpec ?? false}
+              showCategory={activeTemplate?.showCategory ?? true}
+              showUpdatedDate={activeTemplate?.showUpdatedDate ?? false}
+              priceClassName={priceClassMap[activeTemplate?.priceSize ?? "lg"]}
+            />
           </motion.div>
+
           <div className="rounded-2xl border bg-white p-4 text-sm leading-6 text-slate-800">
-            <div className="text-xs uppercase tracking-[0.2em] text-slate-500">實際小票機輸出參考</div>
-            <div className="mt-0 text-left text-[8px] font-medium text-slate-500">{normalizeStoreName(storeName)}</div>
-            <div className="mt-0 text-left text-[15px] font-bold leading-[1.02]">{selected.name}</div>
+            <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
+              實際小票機輸出參考
+            </div>
+            <div className="mt-0 text-left text-[8px] font-medium text-slate-500">
+              {normalizeStoreName(storeName)}
+            </div>
+            <div className="mt-0 text-left text-[15px] font-bold leading-[1.02]">
+              {selected.name}
+            </div>
             <div className="mt-1 flex items-end justify-between gap-2">
               {activeTemplate?.showBarcode ? (
                 <div className="w-[24%] max-w-[72px]">
@@ -1287,13 +1333,23 @@ function LabelPrinter({
                     wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
                   />
                 </div>
-              ) : <div />}
-              <div className="text-right text-[82px] font-black leading-[0.72]">{selected.price}<span className="ml-0.5 text-[8px] font-bold">元
+              ) : (
+                <div />
+              )}
+              <div className="text-right text-[82px] font-black leading-[0.72]">
+                {selected.price}
+                <span className="ml-0.5 text-[8px] font-bold">元</span>
+              </div>
+            </div>
             <div className="mt-1 border-t border-dashed pt-1 text-center text-xs text-slate-500">
               已再壓縮頁頭與文字區高度
             </div>
           </div>
-          <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">{printNotice}</div>
+
+          <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
+            {printNotice}
+          </div>
+
           <Button
             className="w-full gap-2 rounded-xl"
             disabled={Boolean(printBlockedReason) || printing}
@@ -1306,7 +1362,11 @@ function LabelPrinter({
                   template: activeTemplate,
                   printer: defaultPrinter,
                 });
-                setPrintNotice(result.ok ? `已送出列印，訂單號：${result.orderId ?? "-"}` : result.message);
+                setPrintNotice(
+                  result.ok
+                    ? `已送出列印，訂單號：${result.orderId ?? "-"}`
+                    : result.message
+                );
               } catch (error) {
                 console.error("print label failed", error);
                 setPrintNotice("送出列印失敗");
@@ -1315,7 +1375,8 @@ function LabelPrinter({
               }
             }}
           >
-            <Printer className="h-4 w-4" />{printing ? "送出中..." : "送出列印"}
+            <Printer className="h-4 w-4" />
+            {printing ? "送出中..." : "送出列印"}
           </Button>
         </CardContent>
       </Card>
