@@ -1179,7 +1179,7 @@ function ReceiptLabelPreview({
         <div className="text-left text-[8px] font-medium tracking-[0.02em] text-black/65">
           {normalizeStoreName(storeName)}
         </div>
-        <div className="mt-0 text-left text-[22px] font-bold leading-[1.02]">
+        <div className="mt-0 text-left text-[18px] font-bold leading-[1.0]">
           {product.name}
         </div>
         <div className="mt-0 space-y-0 leading-[1.0]">
@@ -1261,9 +1261,9 @@ function LabelPrinter({
       ? "尚未填寫飛鵝 UKEY"
       : missingPrintConfig;
   const priceClassMap: Record<LabelTemplate["priceSize"], string> = {
-    sm: "text-[84px]",
-    md: "text-[112px]",
-    lg: "text-[144px]",
+    sm: "text-[96px]",
+    md: "text-[128px]",
+    lg: "text-[160px]",
   };
 
   return (
@@ -1316,10 +1316,10 @@ function LabelPrinter({
             <div className="mt-0 text-left text-[8px] font-medium text-slate-500">
               {normalizeStoreName(storeName)}
             </div>
-            <div className="mt-0 text-left text-[15px] font-bold leading-[1.02]">
+            <div className="mt-0 text-left text-[13px] font-bold leading-[1.0]">
               {selected.name}
             </div>
-            <div className="mt-1 text-right text-[82px] font-black leading-[0.72]">
+            <div className="mt-1 text-right text-[96px] font-black leading-[0.68]">
               {selected.price}
               <span className="ml-0.5 text-[8px] font-bold">元</span>
             </div>
