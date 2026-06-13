@@ -482,16 +482,11 @@ function buildFeieReceiptContent({
   template: LabelTemplate;
   printer: PrinterDevice | null;
 }) {
-  const lines = [
-    `<B>${product.name}</B>`,
-    `<RIGHT><W><B>${product.price}</B></W><BOLD>元</BOLD></RIGHT>`,
-  ];
-
   if (template.showBarcode) {
-    lines.push(`${buildFeieBarcodeTag(product.barcode)}`);
+    return buildFeieBarcodeTag(product.barcode);
   }
 
-  return lines.join("<BR>");
+  return `<B>${product.name}</B><BR><RIGHT><W><B>${product.price}</B></W><BOLD>元</BOLD></RIGHT>`;
 }
 
 function BarcodeGraphic({
