@@ -491,12 +491,12 @@ function buildFeieReceiptContent({
     textLines.push(`規格：600ml`);
   }
 
-  textLines.push(`<RIGHT><W><B>${product.price}</B></W><BOLD>元</BOLD></RIGHT>`);
-
   if (template.showBarcode) {
-    return `${textLines.join("<BR>")}${buildFeieBarcodeTag(product.barcode)}`;
+    textLines.push(`${buildFeieBarcodeTag(product.barcode)}<RIGHT><W><B>${product.price}</B></W><BOLD>元</BOLD></RIGHT>`);
+    return textLines.join("<BR>");
   }
 
+  textLines.push(`<RIGHT><W><B>${product.price}</B></W><BOLD>元</BOLD></RIGHT>`);
   return textLines.join("<BR>");
 }
 
@@ -1175,34 +1175,36 @@ function ReceiptLabelPreview({
 }) {
   return (
     <div className="mx-auto w-full max-w-sm rounded-[8px] border bg-white shadow-sm">
-      <div className="flex min-h-[172px] flex-col px-4 pb-2 pt-0.5 text-black">
-        <div className="text-left text-[9px] font-medium tracking-[0.04em] text-black/65">
+      <div className="flex min-h-[156px] flex-col px-4 pb-1 pt-0 text-black">
+        <div className="text-left text-[8px] font-medium tracking-[0.02em] text-black/65">
           {normalizeStoreName(storeName)}
         </div>
-        <div className="mt-0.5 text-left text-[24px] font-bold leading-[1.08]">
+        <div className="mt-0 text-left text-[22px] font-bold leading-[1.02]">
           {product.name}
         </div>
-        <div className="mt-1 space-y-0 leading-tight">
-          {showSpec ? <div className="text-[15px] font-semibold">規格：600ml</div> : null}
+        <div className="mt-0 space-y-0 leading-[1.0]">
+          {showSpec ? <div className="text-[13px] font-semibold leading-none">規格：600ml</div> : null}
           {showCategory ? <div className="text-[14px] font-medium">分類：{product.category}</div> : null}
           {showUpdatedDate ? <div className="text-[11px] text-black/70">更新：2026-06-12</div> : null}
         </div>
         <div className="mt-auto space-y-0">
-          <div className="flex items-end justify-end gap-1 text-right">
-            <div className={`${priceClassName} font-black leading-[0.72] tracking-tight`}>
-              {product.price}
+          <div className="flex items-end justify-between gap-2">
+            <div className="-mt-1 w-[24%] max-w-[72px]">
+              <BarcodeGraphic
+                value={product.barcode}
+                width={0.28}
+                height={6}
+                fontSize={2}
+                margin={0}
+                wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
+              />
             </div>
-            <div className="pb-0 text-[8px] font-bold leading-none">元</div>
-          </div>
-          <div className="-mt-1 w-[24%] max-w-[72px]">
-            <BarcodeGraphic
-              value={product.barcode}
-              width={0.28}
-              height={6}
-              fontSize={2}
-              margin={0}
-              wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
-            />
+            <div className="flex items-end justify-end gap-1 text-right">
+              <div className={`${priceClassName} font-black leading-[0.72] tracking-tight`}>
+                {product.price}
+              </div>
+              <div className="pb-0 text-[8px] font-bold leading-none">元</div>
+            </div>
           </div>
         </div>
       </div>
@@ -1271,23 +1273,24 @@ function LabelPrinter({
           </motion.div>
           <div className="rounded-2xl border bg-white p-4 text-sm leading-6 text-slate-800">
             <div className="text-xs uppercase tracking-[0.2em] text-slate-500">實際小票機輸出參考</div>
-            <div className="mt-0 text-left text-[9px] font-medium text-slate-500">{normalizeStoreName(storeName)}</div>
-            <div className="mt-0.5 text-left text-[16px] font-bold leading-[1.08]">{selected.name}</div>
-            <div className="mt-1 text-right text-[82px] font-black leading-[0.72]">{selected.price}<span className="ml-0.5 text-[8px] font-bold">元</span></div>
-            {activeTemplate?.showBarcode ? (
-              <div className="mt-0 w-[24%] max-w-[72px]">
-                <BarcodeGraphic
-                  value={selected.barcode}
-                  width={0.28}
-                  height={6}
-                  fontSize={2}
-                  margin={0}
-                  wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
-                />
-              </div>
-            ) : null}
-            <div className="mt-2 border-t border-dashed pt-2 text-center text-xs text-slate-500">
-              已壓縮文字與條碼之間的空白
+            <div className="mt-0 text-left text-[8px] font-medium text-slate-500">{normalizeStoreName(storeName)}</div>
+            <div className="mt-0 text-left text-[15px] font-bold leading-[1.02]">{selected.name}</div>
+            <div className="mt-1 flex items-end justify-between gap-2">
+              {activeTemplate?.showBarcode ? (
+                <div className="w-[24%] max-w-[72px]">
+                  <BarcodeGraphic
+                    value={selected.barcode}
+                    width={0.28}
+                    height={6}
+                    fontSize={2}
+                    margin={0}
+                    wrapperClassName="rounded-none border-0 bg-transparent px-0 py-0"
+                  />
+                </div>
+              ) : <div />}
+              <div className="text-right text-[82px] font-black leading-[0.72]">{selected.price}<span className="ml-0.5 text-[8px] font-bold">元
+            <div className="mt-1 border-t border-dashed pt-1 text-center text-xs text-slate-500">
+              已再壓縮頁頭與文字區高度
             </div>
           </div>
           <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">{printNotice}</div>
