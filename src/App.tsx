@@ -408,36 +408,22 @@ function normalizeStoreName(value: string): string {
   return value.trim() || "未設定門店";
 }
 
-const FEIE_BARCODE_EXPERIMENT = {
-  enabled: true,
-  height: 10,
-  scale: 1,
-  showText: false,
-};
-
 function buildFeieBarcodeTag(value: string) {
   const normalized = normalizeBarcodeValue(value);
   const isDigitsOnly = new RegExp("^[0-9]+$").test(normalized);
   const isUpperAlphaNumeric = new RegExp("^[0-9A-Z]+$").test(normalized);
   const isMixedAlphaNumeric = new RegExp("^[0-9A-Za-z!@#$%^&*()\-=+_]+$").test(normalized);
 
-  const wrap = (tagName: string) => {
-    if (!FEIE_BARCODE_EXPERIMENT.enabled) {
-      return `<${tagName}>${normalized}</${tagName}>`;
-    }
-    return `<${tagName} height="${FEIE_BARCODE_EXPERIMENT.height}" scale="${FEIE_BARCODE_EXPERIMENT.scale}" text="${FEIE_BARCODE_EXPERIMENT.showText ? 1 : 0}">${normalized}</${tagName}>`;
-  };
-
   if (isDigitsOnly && normalized.length <= 22) {
-    return wrap("BC128_C");
+    return `<BC128_C>${normalized}</BC128_C>`;
   }
 
   if (isUpperAlphaNumeric && normalized.length <= 14) {
-    return wrap("BC128_A");
+    return `<BC128_A>${normalized}</BC128_A>`;
   }
 
   if (isMixedAlphaNumeric && normalized.length <= 14) {
-    return wrap("BC128_B");
+    return `<BC128_B>${normalized}</BC128_B>`;
   }
 
   return normalized;
@@ -496,11 +482,22 @@ function buildFeieReceiptContent({
   template: LabelTemplate;
   printer: PrinterDevice | null;
 }) {
-  if (template.showBarcode) {
-    return buildFeieBarcodeTag(product.barcode);
+  const lines = [
+    `${normalizeStoreName(storeName)}`,
+  ];
+
+  if (template.showSpec) {
+    lines.push(`規格：600ml`);
   }
 
-  return `<B>${product.name}</B><BR><RIGHT><W><B>${product.price}</B></W><BOLD>元</BOLD></RIGHT>`;
+  lines.push(`<B>${product.name}</B>`);
+  lines.push(`<RIGHT><W><B>${product.price}</B></W><BOLD>元</BOLD></RIGHT>`);
+
+  if (template.showBarcode) {
+    lines.push(buildFeieBarcodeTag(product.barcode));
+  }
+
+  return lines.join("<BR>");
 }
 
 function BarcodeGraphic({
