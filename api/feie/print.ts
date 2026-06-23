@@ -16,7 +16,7 @@ type FeieResponse = {
   serverExecutedTime?: number;
 };
 
-const FEIE_PRINT_URL = "https://api.jp.feieyun.com/Api/Open/printMsg";
+const FEIE_PRINT_URL = "https://api.feieyun.cn/Api/Open/printMsg";
 
 function badRequest(res: VercelResponse, message: string) {
   return res.status(400).json({ ok: false, message });
@@ -67,7 +67,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const response = await fetch(FEIE_PRINT_URL, {
       method: "POST",
       headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
       },
       body: params.toString(),
     });
