@@ -689,6 +689,290 @@ async function requestPrinterPrint(
   }
 }
 
+function normalizeBarcodeValue(value: string): string {
+  const cleaned = value.replace(/\s+/g, "").trim();
+  return cleaned || "000000000000";
+}
+
+function normalizeStoreName(value: string): string {
+  return value.trim() || "未設定門店";
+}
+
+function getTranslationStateLabel(state: TranslationState): string {
+  if (state === "reviewed") return "reviewed";
+  if (state === "auto") return "auto";
+  return "empty";
+}
+
+function getTranslationBadgeVariant(state: TranslationState): "default" | "secondary" | "outline" {
+  if (state === "reviewed") return "default";
+  if (state === "auto") return "secondary";
+  return "outline";
+}
+
+function getProductTranslationWarnings(product: Product, template: LabelTemplate): string[] {
+  const warnings: string[] = [];
+  if (template.showNameVi) {
+    if (!product.nameVi.trim()) warnings.push("越南文商品名尚未填寫");
+    else if (product.translationStatus.vi !== "reviewed") warnings.push("越南文商品名尚未人工確認");
+  }
+  if (template.showNameId) {
+    if (!product.nameId.trim()) warnings.push("印尼文商品名尚未填寫");
+    else if (product.translationStatus.id !== "reviewed") warnings.push("印尼文商品名尚未人工確認");
+  }
+  return warnings;
+}
+
+function buildFlowItem(product: Product, qty: number): FlowItem {
+  return {
+    name: product.name,
+    barcode: product.barcode,
+    supplier: product.supplier,
+    qty,
+    price: product.cost,
+    amount: calculateAmount(qty, product.cost),
+  };
+}
+
+function findProductByQuery(list: Product[], query: string): Product | null {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return null;
+  return list.find((item) => {
+    const haystacks = [item.barcode, item.name, item.nameVi, item.nameId, item.supplier];
+    return haystacks.some((value) => value.toLowerCase().includes(normalized));
+  }) ?? null;
+}
+
+function filterBatchRecords(list: BatchRecord[], dateQuery: string, supplierQuery: string): BatchRecord[] {
+  return list.filter((item) => {
+    const matchDate = !dateQuery || item.date === dateQuery;
+    const matchSupplier = !supplierQuery || item.supplier.includes(supplierQuery);
+    return matchDate && matchSupplier;
+  });
+}
+
+function recalcBatchTotals(record: BatchRecord): BatchRecord {
+  const lines = record.lines.map((line) => ({ ...line, amount: calculateAmount(line.qty, line.price) }));
+  return {
+    ...record,
+    lines,
+    itemCount: lines.length,
+    totalAmount: calculateTotal(lines),
+  };
+}
+
+function normalizeTemplates(templates: LabelTemplate[]): LabelTemplate[] {
+  if (templates.length === 0) return templates;
+  if (templates.some((item) => item.active)) return templates;
+  return templates.map((item, index) => ({ ...item, active: index === 0 }));
+}
+
+function normalizePrinterDevices(devices: PrinterDevice[]): PrinterDevice[] {
+  if (devices.length === 0) return devices;
+  if (devices.some((item) => item.isDefault)) return devices;
+  return devices.map((item, index) => ({ ...item, isDefault: index === 0 }));
+}
+
+function getLowStockCount(list: Product[], threshold = 10): number {
+  return list.filter((item) => item.stock <= threshold).length;
+}
+
+function getActiveSupplierCount(list: Supplier[]): number {
+  return list.filter((item) => item.active).length;
+}
+
+function parseBatchInputValue(raw: string, fallback: number): number {
+  const trimmed = raw.trim();
+  if (trimmed === "" || trimmed === "-") return fallback;
+  const next = Number(trimmed);
+  return Number.isFinite(next) ? next : fallback;
+}
+
+function loadPrototypeSettings() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem("supermarket-prototype-settings");
+    if (!raw) return null;
+    return JSON.parse(raw) as Partial<{
+      storeName: string;
+      feieUser: string;
+      feieUkey: string;
+      translationApi: TranslationApiConfig;
+      printerApi: PrinterApiConfig;
+    }>;
+  } catch {
+    return null;
+  }
+}
+
+function savePrototypeSettings(payload: {
+  storeName: string;
+  feieUser: string;
+  feieUkey: string;
+  translationApi: TranslationApiConfig;
+  printerApi: PrinterApiConfig;
+}) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem("supermarket-prototype-settings", JSON.stringify(payload));
+}
+
+function runPrototypeTests(): { name: string; pass: boolean }[] {
+  return [
+    { name: "calculateAmount multiplies qty and price", pass: calculateAmount(3, 21) === 63 },
+    { name: "calculateAmount supports negative qty for return", pass: calculateAmount(-3, 19) === -57 },
+    { name: "findProductByQuery supports Vietnamese name", pass: findProductByQuery(initialProducts, "Bánh mì sandwich")?.barcode === "4710098765432" },
+    { name: "translation warning is shown for auto status", pass: getProductTranslationWarnings(initialProducts[1], initialLabelTemplates[1]).includes("越南文商品名尚未人工確認") },
+    { name: "parseBatchInputValue accepts negative integer", pass: parseBatchInputValue("-3", 0) === -3 },
+  ];
+}
+
+function BarcodeGraphic({
+  value,
+  width = 1.8,
+  height = 56,
+  fontSize = 12,
+  margin = 6,
+  wrapperClassName = "",
+}: {
+  value: string;
+  width?: number;
+  height?: number;
+  fontSize?: number;
+  margin?: number;
+  wrapperClassName?: string;
+}) {
+  const normalized = normalizeBarcodeValue(value);
+  return (
+    <div className={("rounded-lg border bg-white px-3 py-2 " + wrapperClassName).trim()}>
+      <div className="overflow-x-auto">
+        <Barcode
+          value={normalized}
+          format="CODE128"
+          width={width}
+          height={height}
+          margin={margin}
+          fontSize={fontSize}
+          textMargin={4}
+          displayValue={true}
+          background="#ffffff"
+          lineColor="#000000"
+        />
+      </div>
+    </div>
+  );
+}
+
+function CompactBatchNumberInput({
+  value,
+  readOnly = false,
+  onChange,
+}: {
+  value: number;
+  readOnly?: boolean;
+  onChange?: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  React.useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+  const commit = () => {
+    if (readOnly || !onChange) return;
+    const next = parseBatchInputValue(draft, value);
+    setDraft(String(next));
+    if (next !== value) onChange(next);
+  };
+  return (
+    <Input
+      type="text"
+      inputMode="numeric"
+      value={draft}
+      readOnly={readOnly}
+      onChange={(e) => {
+        const next = e.target.value;
+        const isValidDraft = next === "" || next === "-" || Array.from(next).every((char, idx) => (char === "-" ? idx === 0 : char >= "0" && char <= "9"));
+        if (isValidDraft) setDraft(next);
+      }}
+      onFocus={(e) => {
+        if (!readOnly) e.currentTarget.select();
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          commit();
+          e.currentTarget.blur();
+        }
+        if (e.key === "Escape") {
+          setDraft(String(value));
+          e.currentTarget.blur();
+        }
+      }}
+      className="h-8 w-[52px] min-w-[52px] max-w-[52px] rounded-md px-2 text-left [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+    />
+  );
+}
+
+function BatchTable({
+  lines,
+  editable = false,
+  onQtyChange,
+  onPriceChange,
+  onDelete,
+}: {
+  lines: BatchLine[];
+  editable?: boolean;
+  onQtyChange?: (index: number, value: number) => void;
+  onPriceChange?: (index: number, value: number) => void;
+  onDelete?: (index: number) => void;
+}) {
+  const batchGridTemplate = "minmax(176px, 1fr) minmax(56px, 1fr) minmax(56px, 1fr) minmax(104px, 1.1fr) 32px minmax(0px, 1fr)";
+  return (
+    <div className="w-full overflow-x-auto rounded-xl border bg-white">
+      <div className="min-w-[408px]">
+        <div className="grid border-b bg-slate-50 text-left text-sm" style={{ gridTemplateColumns: batchGridTemplate }}>
+          <div className="pl-3 pr-2 py-3 font-medium">商品</div>
+          <div className="px-1 py-3 font-medium">數量</div>
+          <div className="pl-1 pr-3 py-3 font-medium">單價</div>
+          <div className="pl-4 pr-1 py-3 font-medium">小計</div>
+          <div className="px-0 py-3 font-medium"></div>
+          <div className="px-0 py-3 font-medium"></div>
+        </div>
+        <div>
+          {lines.map((line, index) => (
+            <div key={line.barcode + "-" + index} className="grid items-start border-t text-sm first:border-t-0" style={{ gridTemplateColumns: batchGridTemplate }}>
+              <div className="min-w-0 pl-3 pr-2 py-3">
+                <div className="font-medium leading-snug">{line.product}</div>
+                <div className="mt-1 text-[11px] text-muted-foreground">{line.barcode}｜{line.supplier}</div>
+              </div>
+              <div className="pl-1 pr-3 py-3">
+                <CompactBatchNumberInput value={line.qty} readOnly={!editable} onChange={editable && onQtyChange ? (value) => onQtyChange(index, value) : undefined} />
+              </div>
+              <div className="pl-1 pr-3 py-3">
+                <CompactBatchNumberInput value={line.price} readOnly={!editable} onChange={editable && onPriceChange ? (value) => onPriceChange(index, value) : undefined} />
+              </div>
+              <div className="pl-4 pr-1 py-3 font-medium whitespace-nowrap">NT$ {line.amount}</div>
+              <div className="flex justify-center px-0 py-3">
+                <Button variant="outline" size="icon" className="h-6 w-6 rounded-md" onClick={() => onDelete?.(index)}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="px-0 py-3"></div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SectionTitle({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="space-y-1">
+      <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
+      <p className="text-sm text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
 function ProductActionModal({
   action,
   suppliers,
