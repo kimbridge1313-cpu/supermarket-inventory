@@ -46,6 +46,13 @@ type TranslationApiConfig = {
   timeoutMs: number;
 };
 
+type PrinterApiConfig = {
+  enabled: boolean;
+  printEndpoint: string;
+  statusEndpoint: string;
+  timeoutMs: number;
+};
+
 type HistoryRecord = {
   date: string;
   type: "進貨" | "退貨";
@@ -177,6 +184,13 @@ type EditableProductFields = Pick<
 const DEFAULT_TRANSLATION_API_CONFIG: TranslationApiConfig = {
   enabled: false,
   endpoint: "/api/translate",
+  timeoutMs: 12000,
+};
+
+const DEFAULT_PRINTER_API_CONFIG: PrinterApiConfig = {
+  enabled: false,
+  printEndpoint: "/api/feie/print",
+  statusEndpoint: "/api/feie/status",
   timeoutMs: 12000,
 };
 
@@ -552,6 +566,108 @@ async function requestTranslation(
   }
 }
 
+function buildFeieLabelContent(
+  storeName: string,
+  product: Product,
+  template: LabelTemplate
+): string {
+  const lines: string[] = [];
+  const safeStoreName = normalizeStoreName(storeName);
+
+  lines.push(`<BOLD>${safeStoreName}</BOLD><BR>`);
+
+  const nameLines = [
+    template.showNameZh ? product.name.trim() : "",
+    template.showNameVi ? product.nameVi.trim() : "",
+    template.showNameId ? product.nameId.trim() : "",
+  ].filter(Boolean);
+
+  nameLines.slice(0, 3).forEach((line) => {
+    lines.push(`<B>${line}</B><BR>`);
+  });
+
+  if (template.showSpec) lines.push(`規格：600ml<BR>`);
+  if (template.showCategory) lines.push(`分類：${product.category}<BR>`);
+  if (template.showUpdatedDate) lines.push(`更新：2026-06-12<BR>`);
+
+  lines.push(`<RIGHT><B><B>${product.price}</B></B>元</RIGHT><BR>`);
+
+  if (template.showBarcode) {
+    lines.push(`<BARCODE>${normalizeBarcodeValue(product.barcode)}</BARCODE><BR>`);
+  }
+
+  if (product.translationStatus.vi !== "reviewed" || product.translationStatus.id !== "reviewed") {
+    lines.push(`翻譯狀態需再次確認<BR>`);
+  }
+
+  if (template.paperSize === "57mm") lines.push(`<CUT>`);
+  return lines.join("");
+}
+
+async function requestPrinterStatus(
+  apiConfig: PrinterApiConfig,
+  payload: { user: string; ukey: string; sn: string }
+): Promise<{ ok: boolean; status: string }> {
+  if (!apiConfig.enabled) {
+    return { ok: true, status: "已連線" };
+  }
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), apiConfig.timeoutMs);
+
+  try {
+    const response = await fetch(apiConfig.statusEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) throw new Error(`PRINTER_STATUS_HTTP_${response.status}`);
+    const result = (await response.json()) as { ok?: boolean; status?: string };
+    return {
+      ok: result.ok ?? true,
+      status: result.status || "已連線",
+    };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+async function requestPrinterPrint(
+  apiConfig: PrinterApiConfig,
+  payload: { user: string; ukey: string; sn: string; content: string; times?: number }
+): Promise<{ ok: boolean; message: string }> {
+  if (!apiConfig.enabled) {
+    return { ok: true, message: "已送出模擬列印" };
+  }
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), apiConfig.timeoutMs);
+
+  try {
+    const response = await fetch(apiConfig.printEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ...payload, times: payload.times ?? 1 }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) throw new Error(`PRINTER_PRINT_HTTP_${response.status}`);
+    const result = (await response.json()) as { ok?: boolean; message?: string };
+    return {
+      ok: result.ok ?? true,
+      message: result.message || "列印任務已送出",
+    };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 function findProductByQuery(list: Product[], query: string): Product | null {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return null;
@@ -616,6 +732,35 @@ function normalizeBarcodeValue(value: string): string {
 
 function normalizeStoreName(value: string): string {
   return value.trim() || "未設定門店";
+}
+
+function loadPrototypeSettings() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem("supermarket-prototype-settings");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<{
+      storeName: string;
+      feieUser: string;
+      feieUkey: string;
+      translationApi: TranslationApiConfig;
+      printerApi: PrinterApiConfig;
+    }>;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function savePrototypeSettings(payload: {
+  storeName: string;
+  feieUser: string;
+  feieUkey: string;
+  translationApi: TranslationApiConfig;
+  printerApi: PrinterApiConfig;
+}) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem("supermarket-prototype-settings", JSON.stringify(payload));
 }
 
 function getTranslationStateLabel(state: TranslationState): string {
@@ -1999,17 +2144,30 @@ function LabelPrinter({
   products,
   storeName,
   labelTemplates,
+  printerApi,
+  printerDevices,
+  feieUser,
+  feieUkey,
   onSetActiveTemplate,
 }: {
   products: Product[];
   storeName: string;
   labelTemplates: LabelTemplate[];
+  printerApi: PrinterApiConfig;
+  printerDevices: PrinterDevice[];
+  feieUser: string;
+  feieUkey: string;
   onSetActiveTemplate: (templateId: string) => void;
 }) {
   const [selected, setSelected] = useState<Product>(products[0]);
   const [query, setQuery] = useState("");
+  const [printBusy, setPrintBusy] = useState(false);
+  const [printMessage, setPrintMessage] = useState("");
+
   const activeTemplate =
     labelTemplates.find((template) => template.active) ?? labelTemplates[0];
+  const defaultPrinter =
+    printerDevices.find((device) => device.isDefault) ?? printerDevices[0] ?? null;
 
   const filteredProducts = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -2027,6 +2185,39 @@ function LabelPrinter({
     sm: "text-[56px]",
     md: "text-[72px]",
     lg: "text-[92px]",
+  };
+
+  const handlePrint = async () => {
+    if (!defaultPrinter) {
+      setPrintMessage("尚未設定預設設備");
+      return;
+    }
+    if (!defaultPrinter.deviceId.trim()) {
+      setPrintMessage("預設設備尚未填寫打印機 SN");
+      return;
+    }
+    if (printerApi.enabled && (!feieUser.trim() || !feieUkey.trim())) {
+      setPrintMessage("請先在系統設定填入飛鵝 user / UKEY");
+      return;
+    }
+
+    setPrintBusy(true);
+    setPrintMessage("");
+
+    try {
+      const result = await requestPrinterPrint(printerApi, {
+        user: feieUser.trim(),
+        ukey: feieUkey.trim(),
+        sn: defaultPrinter.deviceId.trim(),
+        content: buildFeieLabelContent(storeName, selected, activeTemplate),
+        times: 1,
+      });
+      setPrintMessage(result.message);
+    } catch {
+      setPrintMessage("列印失敗，請檢查印表機 API、帳號設定或設備 SN");
+    } finally {
+      setPrintBusy(false);
+    }
   };
 
   return (
@@ -2078,6 +2269,20 @@ function LabelPrinter({
             ))}
           </div>
 
+          <div className="rounded-xl border p-3 text-sm">
+            <div className="font-medium">目前列印設備</div>
+            {defaultPrinter ? (
+              <div className="mt-2 space-y-1 text-muted-foreground">
+                <div>設備：{defaultPrinter.name}</div>
+                <div>SN：{defaultPrinter.deviceId || "未填寫"}</div>
+                <div>狀態：{defaultPrinter.status}</div>
+                <div>列印 API：{printerApi.enabled ? printerApi.printEndpoint : "模擬模式"}</div>
+              </div>
+            ) : (
+              <div className="mt-2 text-muted-foreground">尚未設定設備</div>
+            )}
+          </div>
+
           <motion.div layout>
             <ReceiptLabelPreview
               storeName={storeName}
@@ -2108,8 +2313,16 @@ function LabelPrinter({
               <li>設備是否已連線</li>
             </ul>
           </div>
-          <Button className="w-full gap-2 rounded-xl">
-            <Printer className="h-4 w-4" />送出列印
+
+          {printMessage ? (
+            <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
+              {printMessage}
+            </div>
+          ) : null}
+
+          <Button className="w-full gap-2 rounded-xl" onClick={() => void handlePrint()} disabled={printBusy}>
+            <Printer className="h-4 w-4" />
+            {printBusy ? "送出中..." : "送出列印"}
           </Button>
         </CardContent>
       </Card>
@@ -2953,35 +3166,138 @@ function SystemSettingsPanel({
   setStoreName,
   translationApi,
   setTranslationApi,
+  printerApi,
+  setPrinterApi,
+  feieUser,
+  setFeieUser,
+  feieUkey,
+  setFeieUkey,
 }: {
   storeName: string;
   setStoreName: React.Dispatch<React.SetStateAction<string>>;
   translationApi: TranslationApiConfig;
   setTranslationApi: React.Dispatch<React.SetStateAction<TranslationApiConfig>>;
+  printerApi: PrinterApiConfig;
+  setPrinterApi: React.Dispatch<React.SetStateAction<PrinterApiConfig>>;
+  feieUser: string;
+  setFeieUser: React.Dispatch<React.SetStateAction<string>>;
+  feieUkey: string;
+  setFeieUkey: React.Dispatch<React.SetStateAction<string>>;
 }) {
   const [draftStoreName, setDraftStoreName] = useState(storeName);
   const [draftTranslationApi, setDraftTranslationApi] = useState(translationApi);
+  const [draftPrinterApi, setDraftPrinterApi] = useState(printerApi);
+  const [draftFeieUser, setDraftFeieUser] = useState(feieUser);
+  const [draftFeieUkey, setDraftFeieUkey] = useState(feieUkey);
+  const [saveNotice, setSaveNotice] = useState("");
 
   React.useEffect(() => setDraftStoreName(storeName), [storeName]);
   React.useEffect(() => setDraftTranslationApi(translationApi), [translationApi]);
+  React.useEffect(() => setDraftPrinterApi(printerApi), [printerApi]);
+  React.useEffect(() => setDraftFeieUser(feieUser), [feieUser]);
+  React.useEffect(() => setDraftFeieUkey(feieUkey), [feieUkey]);
+
+  const normalizedNextStoreName = normalizeStoreName(draftStoreName);
+  const normalizedNextFeieUser = draftFeieUser.trim();
+  const normalizedNextFeieUkey = draftFeieUkey.trim();
+  const normalizedNextTranslationApi: TranslationApiConfig = {
+    enabled: draftTranslationApi.enabled,
+    endpoint: draftTranslationApi.endpoint.trim() || DEFAULT_TRANSLATION_API_CONFIG.endpoint,
+    timeoutMs: Math.max(
+      1000,
+      Number(draftTranslationApi.timeoutMs) || DEFAULT_TRANSLATION_API_CONFIG.timeoutMs
+    ),
+  };
+  const normalizedNextPrinterApi: PrinterApiConfig = {
+    enabled: draftPrinterApi.enabled,
+    printEndpoint:
+      draftPrinterApi.printEndpoint.trim() || DEFAULT_PRINTER_API_CONFIG.printEndpoint,
+    statusEndpoint:
+      draftPrinterApi.statusEndpoint.trim() || DEFAULT_PRINTER_API_CONFIG.statusEndpoint,
+    timeoutMs: Math.max(
+      1000,
+      Number(draftPrinterApi.timeoutMs) || DEFAULT_PRINTER_API_CONFIG.timeoutMs
+    ),
+  };
+
+  const hasChanges =
+    normalizedNextStoreName !== storeName ||
+    normalizedNextFeieUser !== feieUser ||
+    normalizedNextFeieUkey !== feieUkey ||
+    normalizedNextTranslationApi.enabled !== translationApi.enabled ||
+    normalizedNextTranslationApi.endpoint !== translationApi.endpoint ||
+    normalizedNextTranslationApi.timeoutMs !== translationApi.timeoutMs ||
+    normalizedNextPrinterApi.enabled !== printerApi.enabled ||
+    normalizedNextPrinterApi.printEndpoint !== printerApi.printEndpoint ||
+    normalizedNextPrinterApi.statusEndpoint !== printerApi.statusEndpoint ||
+    normalizedNextPrinterApi.timeoutMs !== printerApi.timeoutMs;
 
   return (
     <Card className="rounded-2xl shadow-sm">
       <CardHeader>
         <CardTitle>系統設定</CardTitle>
         <CardDescription>
-          設定門店名稱與翻譯 API 端點。翻譯金鑰請放在 server-side endpoint，不要直接放前端。
+          把前端需要填的門店、翻譯 API、印表機 API 與飛鵝帳號集中在同一頁。
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="rounded-xl border p-3 text-sm">
+          <div className="font-medium">目前已套用設定</div>
+          <div className="mt-2 space-y-1 text-muted-foreground">
+            <div>門店：{storeName}</div>
+            <div>飛鵝 user：{feieUser || "未填寫"}</div>
+            <div>翻譯 API：{translationApi.enabled ? translationApi.endpoint : "未啟用"}</div>
+            <div>印表機 API：{printerApi.enabled ? printerApi.printEndpoint : "未啟用"}</div>
+          </div>
+        </div>
+
         <div className="rounded-xl border p-3">
           <div className="text-xs text-muted-foreground">門店名稱</div>
           <Input
             value={draftStoreName}
-            onChange={(e) => setDraftStoreName(e.target.value)}
+            onChange={(e) => {
+              setDraftStoreName(e.target.value);
+              setSaveNotice("");
+            }}
             placeholder="例如：嘉義門市"
             className="mt-2"
           />
+        </div>
+
+        <div className="rounded-xl border p-3 space-y-3">
+          <div>
+            <div className="font-medium text-sm">前端需填的飛鵝資料</div>
+            <div className="text-xs text-muted-foreground mt-1">
+              前端只填 user / UKEY；真正呼叫飛鵝雲請由 server endpoint 代送。
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <div className="text-xs text-muted-foreground">飛鵝 user</div>
+              <Input
+                value={draftFeieUser}
+                onChange={(e) => {
+                  setDraftFeieUser(e.target.value);
+                  setSaveNotice("");
+                }}
+                placeholder="飛鵝後台 user"
+                className="mt-2"
+              />
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">飛鵝 UKEY</div>
+              <Input
+                type="password"
+                value={draftFeieUkey}
+                onChange={(e) => {
+                  setDraftFeieUkey(e.target.value);
+                  setSaveNotice("");
+                }}
+                placeholder="UKEY"
+                className="mt-2"
+              />
+            </div>
+          </div>
         </div>
 
         <div className="rounded-xl border p-3 space-y-3">
@@ -2996,9 +3312,10 @@ function SystemSettingsPanel({
               <input
                 type="checkbox"
                 checked={draftTranslationApi.enabled}
-                onChange={() =>
-                  setDraftTranslationApi((prev) => ({ ...prev, enabled: !prev.enabled }))
-                }
+                onChange={() => {
+                  setDraftTranslationApi((prev) => ({ ...prev, enabled: !prev.enabled }));
+                  setSaveNotice("");
+                }}
               />
               <span>{draftTranslationApi.enabled ? "已啟用" : "未啟用"}</span>
             </label>
@@ -3008,9 +3325,10 @@ function SystemSettingsPanel({
             <div className="text-xs text-muted-foreground">翻譯 API Endpoint</div>
             <Input
               value={draftTranslationApi.endpoint}
-              onChange={(e) =>
-                setDraftTranslationApi((prev) => ({ ...prev, endpoint: e.target.value }))
-              }
+              onChange={(e) => {
+                setDraftTranslationApi((prev) => ({ ...prev, endpoint: e.target.value }));
+                setSaveNotice("");
+              }}
               placeholder="例如：/api/translate"
               className="mt-2"
             />
@@ -3021,30 +3339,109 @@ function SystemSettingsPanel({
             <Input
               type="number"
               value={draftTranslationApi.timeoutMs}
-              onChange={(e) =>
+              onChange={(e) => {
                 setDraftTranslationApi((prev) => ({
                   ...prev,
                   timeoutMs: Number(e.target.value) || DEFAULT_TRANSLATION_API_CONFIG.timeoutMs,
-                }))
-              }
+                }));
+                setSaveNotice("");
+              }}
               className="mt-2"
             />
           </div>
         </div>
 
+        <div className="rounded-xl border p-3 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="font-medium text-sm">印表機 API</div>
+              <div className="text-xs text-muted-foreground">
+                前端列印與狀態查詢都會打這兩個 endpoint，再由 server 轉接飛鵝雲。
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={draftPrinterApi.enabled}
+                onChange={() => {
+                  setDraftPrinterApi((prev) => ({ ...prev, enabled: !prev.enabled }));
+                  setSaveNotice("");
+                }}
+              />
+              <span>{draftPrinterApi.enabled ? "已啟用" : "未啟用"}</span>
+            </label>
+          </div>
+
+          <div>
+            <div className="text-xs text-muted-foreground">列印 Endpoint</div>
+            <Input
+              value={draftPrinterApi.printEndpoint}
+              onChange={(e) => {
+                setDraftPrinterApi((prev) => ({ ...prev, printEndpoint: e.target.value }));
+                setSaveNotice("");
+              }}
+              placeholder="例如：/api/feie/print"
+              className="mt-2"
+            />
+          </div>
+
+          <div>
+            <div className="text-xs text-muted-foreground">狀態 Endpoint</div>
+            <Input
+              value={draftPrinterApi.statusEndpoint}
+              onChange={(e) => {
+                setDraftPrinterApi((prev) => ({ ...prev, statusEndpoint: e.target.value }));
+                setSaveNotice("");
+              }}
+              placeholder="例如：/api/feie/status"
+              className="mt-2"
+            />
+          </div>
+
+          <div>
+            <div className="text-xs text-muted-foreground">Timeout（毫秒）</div>
+            <Input
+              type="number"
+              value={draftPrinterApi.timeoutMs}
+              onChange={(e) => {
+                setDraftPrinterApi((prev) => ({
+                  ...prev,
+                  timeoutMs: Number(e.target.value) || DEFAULT_PRINTER_API_CONFIG.timeoutMs,
+                }));
+                setSaveNotice("");
+              }}
+              className="mt-2"
+            />
+          </div>
+        </div>
+
+        {saveNotice ? (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            {saveNotice}
+          </div>
+        ) : null}
+
         <div className="flex justify-end">
           <Button
             className="rounded-xl"
+            disabled={!hasChanges}
             onClick={() => {
-              setStoreName(normalizeStoreName(draftStoreName));
-              setTranslationApi({
-                enabled: draftTranslationApi.enabled,
-                endpoint: draftTranslationApi.endpoint.trim() || DEFAULT_TRANSLATION_API_CONFIG.endpoint,
-                timeoutMs: Math.max(1000, Number(draftTranslationApi.timeoutMs) || DEFAULT_TRANSLATION_API_CONFIG.timeoutMs),
+              setStoreName(normalizedNextStoreName);
+              setFeieUser(normalizedNextFeieUser);
+              setFeieUkey(normalizedNextFeieUkey);
+              setTranslationApi(normalizedNextTranslationApi);
+              setPrinterApi(normalizedNextPrinterApi);
+              savePrototypeSettings({
+                storeName: normalizedNextStoreName,
+                feieUser: normalizedNextFeieUser,
+                feieUkey: normalizedNextFeieUkey,
+                translationApi: normalizedNextTranslationApi,
+                printerApi: normalizedNextPrinterApi,
               });
+              setSaveNotice("前端設定已儲存，重新整理後仍會保留。");
             }}
           >
-            儲存
+            {hasChanges ? "儲存" : "已是最新設定"}
           </Button>
         </div>
       </CardContent>
@@ -3055,24 +3452,19 @@ function SystemSettingsPanel({
 function PrinterDeviceManager({
   devices,
   setDevices,
+  printerApi,
   feieUser,
-  setFeieUser,
   feieUkey,
-  setFeieUkey,
 }: {
   devices: PrinterDevice[];
   setDevices: React.Dispatch<React.SetStateAction<PrinterDevice[]>>;
+  printerApi: PrinterApiConfig;
   feieUser: string;
-  setFeieUser: React.Dispatch<React.SetStateAction<string>>;
   feieUkey: string;
-  setFeieUkey: React.Dispatch<React.SetStateAction<string>>;
 }) {
   const [openId, setOpenId] = useState<string>(devices[0]?.id ?? "");
-  const [draftFeieUser, setDraftFeieUser] = useState(feieUser);
-  const [draftFeieUkey, setDraftFeieUkey] = useState(feieUkey);
-
-  React.useEffect(() => setDraftFeieUser(feieUser), [feieUser]);
-  React.useEffect(() => setDraftFeieUkey(feieUkey), [feieUkey]);
+  const [printerMessage, setPrinterMessage] = useState("");
+  const [busyDeviceId, setBusyDeviceId] = useState<string | null>(null);
 
   const updateDevice = (deviceId: string, patch: Partial<PrinterDevice>) =>
     setDevices((prev) =>
@@ -3087,7 +3479,7 @@ function PrinterDeviceManager({
       brand: "",
       model: "",
       usage: "貨卡",
-      connectionType: "Wi-Fi",
+      connectionType: "Cloud API",
       ipAddress: "",
       port: "9100",
       deviceId: "",
@@ -3111,51 +3503,52 @@ function PrinterDeviceManager({
   const setDefaultDevice = (deviceId: string) =>
     setDevices((prev) => prev.map((item) => ({ ...item, isDefault: item.id === deviceId })));
 
-  const testPrintDevice = (deviceId: string) =>
-    setDevices((prev) =>
-      prev.map((item) => (item.id === deviceId ? { ...item, status: "已連線" } : item))
-    );
+  const testPrintDevice = async (device: PrinterDevice) => {
+    if (!device.deviceId.trim()) {
+      setPrinterMessage("請先填寫打印機 SN 再測試列印");
+      return;
+    }
+    if (printerApi.enabled && (!feieUser.trim() || !feieUkey.trim())) {
+      setPrinterMessage("請先到系統設定填入飛鵝 user / UKEY");
+      return;
+    }
+
+    setBusyDeviceId(device.id);
+    setPrinterMessage("");
+
+    try {
+      const result = await requestPrinterStatus(printerApi, {
+        user: feieUser.trim(),
+        ukey: feieUkey.trim(),
+        sn: device.deviceId.trim(),
+      });
+
+      updateDevice(device.id, { status: result.ok ? "已連線" : "未連線" });
+      setPrinterMessage(`${device.name}：${result.status}`);
+    } catch {
+      updateDevice(device.id, { status: "未連線" });
+      setPrinterMessage(`${device.name}：測試失敗，請檢查 API、帳號或設備 SN`);
+    } finally {
+      setBusyDeviceId(null);
+    }
+  };
 
   return (
     <Card className="rounded-2xl shadow-sm">
       <CardHeader>
         <CardTitle>列印設備設定</CardTitle>
         <CardDescription>
-          設定飛鵝帳號參數、管理設備 SN、預設設備與測試列印。
+          前端只維護設備資料；印表機 API、飛鵝帳號已拉到系統設定頁最前面。
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 rounded-2xl border p-4 md:grid-cols-2">
-          <div>
-            <div className="text-xs text-muted-foreground">飛鵝 user</div>
-            <Input
-              value={draftFeieUser}
-              onChange={(e) => setDraftFeieUser(e.target.value)}
-              placeholder="飛鵝後台註冊用戶名"
-              className="mt-2"
-            />
-          </div>
-          <div>
-            <div className="text-xs text-muted-foreground">飛鵝 UKEY</div>
-            <Input
-              type="password"
-              value={draftFeieUkey}
-              onChange={(e) => setDraftFeieUkey(e.target.value)}
-              placeholder="UKEY"
-              className="mt-2"
-            />
-          </div>
-          <div className="md:col-span-2 flex justify-end">
-            <Button
-              variant="outline"
-              className="rounded-xl"
-              onClick={() => {
-                setFeieUser(draftFeieUser.trim());
-                setFeieUkey(draftFeieUkey.trim());
-              }}
-            >
-              儲存帳號設定
-            </Button>
+        <div className="rounded-2xl border p-4 text-sm">
+          <div className="font-medium">目前 API 狀態</div>
+          <div className="mt-2 space-y-1 text-muted-foreground">
+            <div>印表機 API：{printerApi.enabled ? "已啟用" : "模擬模式"}</div>
+            <div>列印 Endpoint：{printerApi.printEndpoint}</div>
+            <div>狀態 Endpoint：{printerApi.statusEndpoint}</div>
+            <div>飛鵝帳號：{feieUser.trim() ? "已填寫" : "未填寫"}</div>
           </div>
         </div>
 
@@ -3164,6 +3557,12 @@ function PrinterDeviceManager({
             <Plus className="h-4 w-4" />新增設備
           </Button>
         </div>
+
+        {printerMessage ? (
+          <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">
+            {printerMessage}
+          </div>
+        ) : null}
 
         <div className="space-y-3">
           {devices.map((device) => {
@@ -3328,11 +3727,12 @@ function PrinterDeviceManager({
                       <Button
                         variant="outline"
                         className="rounded-xl"
-                        onClick={() => testPrintDevice(device.id)}
+                        onClick={() => void testPrintDevice(device)}
+                        disabled={busyDeviceId === device.id}
                       >
-                        測試列印
+                        {busyDeviceId === device.id ? "測試中..." : "測試列印"}
                       </Button>
-                      <Button variant="outline" className="rounded-xl">
+                      <Button variant="outline" className="rounded-xl" onClick={() => setPrinterMessage(`${device.name} 設備設定已儲存`)}>
                         儲存
                       </Button>
                       <Button
@@ -3366,6 +3766,8 @@ function SettingsWorkspace({
   setStoreName,
   translationApi,
   setTranslationApi,
+  printerApi,
+  setPrinterApi,
   feieUser,
   setFeieUser,
   feieUkey,
@@ -3382,6 +3784,8 @@ function SettingsWorkspace({
   setStoreName: React.Dispatch<React.SetStateAction<string>>;
   translationApi: TranslationApiConfig;
   setTranslationApi: React.Dispatch<React.SetStateAction<TranslationApiConfig>>;
+  printerApi: PrinterApiConfig;
+  setPrinterApi: React.Dispatch<React.SetStateAction<PrinterApiConfig>>;
   feieUser: string;
   setFeieUser: React.Dispatch<React.SetStateAction<string>>;
   feieUkey: string;
@@ -3402,6 +3806,12 @@ function SettingsWorkspace({
           setStoreName={setStoreName}
           translationApi={translationApi}
           setTranslationApi={setTranslationApi}
+          printerApi={printerApi}
+          setPrinterApi={setPrinterApi}
+          feieUser={feieUser}
+          setFeieUser={setFeieUser}
+          feieUkey={feieUkey}
+          setFeieUkey={setFeieUkey}
         />
       </div>
     );
@@ -3443,10 +3853,9 @@ function SettingsWorkspace({
         <PrinterDeviceManager
           devices={printerDevices}
           setDevices={setPrinterDevices}
+          printerApi={printerApi}
           feieUser={feieUser}
-          setFeieUser={setFeieUser}
           feieUkey={feieUkey}
-          setFeieUkey={setFeieUkey}
         />
       </div>
     );
@@ -3476,7 +3885,7 @@ function SettingsWorkspace({
             <CardContent className="space-y-3 p-5">
               <SlidersHorizontal className="h-5 w-5" />
               <div className="font-medium">系統設定</div>
-              <div className="text-sm text-muted-foreground">設定門店名稱與基本系統資訊。</div>
+              <div className="text-sm text-muted-foreground">前端需填資料與 API 端點。</div>
             </CardContent>
           </Card>
         </button>
@@ -3505,7 +3914,7 @@ function SettingsWorkspace({
               <Printer className="h-5 w-5" />
               <div className="font-medium">列印設備設定</div>
               <div className="text-sm text-muted-foreground">
-                設定飛鵝 user / UKEY、管理設備 SN、預設設備與測試列印。
+                管理設備清單、預設設備與測試列印。
               </div>
             </CardContent>
           </Card>
@@ -3574,12 +3983,47 @@ export default function SupermarketInventoryFrontendPrototype() {
   const [translationApi, setTranslationApi] = useState<TranslationApiConfig>(
     DEFAULT_TRANSLATION_API_CONFIG
   );
+  const [printerApi, setPrinterApi] = useState<PrinterApiConfig>(
+    DEFAULT_PRINTER_API_CONFIG
+  );
   const [feieUkey, setFeieUkey] = useState<string>("");
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers);
   const [batchRecords, setBatchRecords] = useState<BatchRecord[]>(initialBatchRecords);
   const [labelTemplates, setLabelTemplates] = useState<LabelTemplate[]>(initialLabelTemplates);
   const [printerDevices, setPrinterDevices] = useState<PrinterDevice[]>(initialPrinterDevices);
+
+  React.useEffect(() => {
+    const stored = loadPrototypeSettings();
+    if (!stored) return;
+    if (typeof stored.storeName === "string") setStoreName(normalizeStoreName(stored.storeName));
+    if (typeof stored.feieUser === "string") setFeieUser(stored.feieUser);
+    if (typeof stored.feieUkey === "string") setFeieUkey(stored.feieUkey);
+    if (stored.translationApi) {
+      setTranslationApi({
+        enabled: !!stored.translationApi.enabled,
+        endpoint:
+          stored.translationApi.endpoint?.trim() || DEFAULT_TRANSLATION_API_CONFIG.endpoint,
+        timeoutMs: Math.max(
+          1000,
+          Number(stored.translationApi.timeoutMs) || DEFAULT_TRANSLATION_API_CONFIG.timeoutMs
+        ),
+      });
+    }
+    if (stored.printerApi) {
+      setPrinterApi({
+        enabled: !!stored.printerApi.enabled,
+        printEndpoint:
+          stored.printerApi.printEndpoint?.trim() || DEFAULT_PRINTER_API_CONFIG.printEndpoint,
+        statusEndpoint:
+          stored.printerApi.statusEndpoint?.trim() || DEFAULT_PRINTER_API_CONFIG.statusEndpoint,
+        timeoutMs: Math.max(
+          1000,
+          Number(stored.printerApi.timeoutMs) || DEFAULT_PRINTER_API_CONFIG.timeoutMs
+        ),
+      });
+    }
+  }, []);
 
   const lowStockCount = getLowStockCount(products, 10);
   const supplierCount = getActiveSupplierCount(suppliers);
@@ -3703,6 +4147,10 @@ export default function SupermarketInventoryFrontendPrototype() {
                   products={products}
                   storeName={storeName}
                   labelTemplates={labelTemplates}
+                  printerApi={printerApi}
+                  printerDevices={printerDevices}
+                  feieUser={feieUser}
+                  feieUkey={feieUkey}
                   onSetActiveTemplate={setActiveTemplate}
                 />
               ) : null}
@@ -3726,6 +4174,8 @@ export default function SupermarketInventoryFrontendPrototype() {
                   setStoreName={setStoreName}
                   translationApi={translationApi}
                   setTranslationApi={setTranslationApi}
+                  printerApi={printerApi}
+                  setPrinterApi={setPrinterApi}
                   feieUser={feieUser}
                   setFeieUser={setFeieUser}
                   feieUkey={feieUkey}
