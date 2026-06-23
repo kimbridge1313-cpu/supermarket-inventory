@@ -407,7 +407,7 @@ const initialPrinterDevices: PrinterDevice[] = [
     connectionType: "Cloud API",
     ipAddress: "",
     port: "",
-    deviceId: "FG-V58-001",
+    deviceId: "934635864",
     paperWidth: "57mm",
     cutterEnabled: true,
     isDefault: true,
