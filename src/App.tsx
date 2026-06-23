@@ -188,7 +188,7 @@ const DEFAULT_TRANSLATION_API_CONFIG: TranslationApiConfig = {
 };
 
 const DEFAULT_PRINTER_API_CONFIG: PrinterApiConfig = {
-  enabled: false,
+  enabled: true,
   printEndpoint: "/api/feie/print",
   statusEndpoint: "/api/feie/status",
   timeoutMs: 12000,
@@ -407,7 +407,7 @@ const initialPrinterDevices: PrinterDevice[] = [
     connectionType: "Cloud API",
     ipAddress: "",
     port: "",
-    deviceId: "934635864",
+    deviceId: "FG-V58-001",
     paperWidth: "57mm",
     cutterEnabled: true,
     isDefault: true,
@@ -608,15 +608,19 @@ async function requestPrinterStatus(
   apiConfig: PrinterApiConfig,
   payload: { user: string; ukey: string; sn: string }
 ): Promise<{ ok: boolean; status: string }> {
-  if (!apiConfig.enabled) {
-    return { ok: true, status: "已連線" };
+  const endpoint = apiConfig.statusEndpoint.trim();
+  if (!endpoint) {
+    return {
+      ok: false,
+      status: "尚未設定狀態 Endpoint",
+    };
   }
 
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), apiConfig.timeoutMs);
 
   try {
-    const response = await fetch(apiConfig.statusEndpoint, {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -626,29 +630,34 @@ async function requestPrinterStatus(
     });
 
     if (!response.ok) throw new Error(`PRINTER_STATUS_HTTP_${response.status}`);
-    const result = (await response.json()) as { ok?: boolean; status?: string };
+    const result = (await response.json()) as {
+      ok?: boolean;
+      status?: string;
+      message?: string;
+      error?: string;
+    };
     return {
       ok: result.ok ?? true,
-      status: result.status || "已連線",
+      status: result.status || result.message || result.error || "已連線",
     };
   } finally {
-    window.clearTimeout(timeoutId);
-  }
-}
-
-async function requestPrinterPrint(
+    window.clearTimeout(timeoutIasync function requestPrinterPrint(
   apiConfig: PrinterApiConfig,
   payload: { user: string; ukey: string; sn: string; content: string; times?: number }
 ): Promise<{ ok: boolean; message: string }> {
-  if (!apiConfig.enabled) {
-    return { ok: true, message: "已送出模擬列印" };
+  const endpoint = apiConfig.printEndpoint.trim();
+  if (!endpoint) {
+    return {
+      ok: false,
+      message: "尚未設定列印 Endpoint",
+    };
   }
 
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), apiConfig.timeoutMs);
 
   try {
-    const response = await fetch(apiConfig.printEndpoint, {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -658,13 +667,21 @@ async function requestPrinterPrint(
     });
 
     if (!response.ok) throw new Error(`PRINTER_PRINT_HTTP_${response.status}`);
-    const result = (await response.json()) as { ok?: boolean; message?: string };
+    const result = (await response.json()) as {
+      ok?: boolean;
+      message?: string;
+      error?: string;
+      msg?: string;
+      data?: unknown;
+    };
     return {
       ok: result.ok ?? true,
-      message: result.message || "列印任務已送出",
+      message: result.message || result.msg || result.error || "列印任務已送出",
     };
   } finally {
     window.clearTimeout(timeoutId);
+  }
+}tId);
   }
 }
 
@@ -2196,7 +2213,12 @@ function LabelPrinter({
       setPrintMessage("預設設備尚未填寫打印機 SN");
       return;
     }
-    if (printerApi.enabled && (!feieUser.trim() || !feieUkey.trim())) {
+    
+    if (!printerApi.printEndpoint.trim()) {
+      setPrintMessage("尚未設定列印 Endpoint");
+      return;
+    }
+    if (!feieUser.trim() || !feieUkey.trim()) {
       setPrintMessage("請先在系統設定填入飛鵝 user / UKEY");
       return;
     }
@@ -2213,8 +2235,12 @@ function LabelPrinter({
         times: 1,
       });
       setPrintMessage(result.message);
-    } catch {
-      setPrintMessage("列印失敗，請檢查印表機 API、帳號設定或設備 SN");
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? `列印失敗：${error.message}`
+          : "列印失敗，請檢查印表機 API、帳號設定或設備 SN";
+      setPrintMessage(message);
     } finally {
       setPrintBusy(false);
     }
@@ -2276,12 +2302,16 @@ function LabelPrinter({
                 <div>設備：{defaultPrinter.name}</div>
                 <div>SN：{defaultPrinter.deviceId || "未填寫"}</div>
                 <div>狀態：{defaultPrinter.status}</div>
-                <div>列印 API：{printerApi.enabled ? printerApi.printEndpoint : "模擬模式"}</div>
+                <div>列印 API：{printerApi.printEndpoint || "未設定"}</div>
+                <div>飛鵝 user：{feieUser.trim() ? "已填寫" : "未填寫"}</div>
+                <div>飛鵝 UKEY：{feieUkey.trim() ? "已填寫" : "未填寫"}</div>
               </div>
             ) : (
               <div className="mt-2 text-muted-foreground">尚未設定設備</div>
             )}
           </div>
+
+          
 
           <motion.div layout>
             <ReceiptLabelPreview
@@ -3508,7 +3538,7 @@ function PrinterDeviceManager({
       setPrinterMessage("請先填寫打印機 SN 再測試列印");
       return;
     }
-    if (printerApi.enabled && (!feieUser.trim() || !feieUkey.trim())) {
+    if (!feieUser.trim() || !feieUkey.trim()) {
       setPrinterMessage("請先到系統設定填入飛鵝 user / UKEY");
       return;
     }
@@ -3545,7 +3575,7 @@ function PrinterDeviceManager({
         <div className="rounded-2xl border p-4 text-sm">
           <div className="font-medium">目前 API 狀態</div>
           <div className="mt-2 space-y-1 text-muted-foreground">
-            <div>印表機 API：{printerApi.enabled ? "已啟用" : "模擬模式"}</div>
+            <div>印表機 API：{printerApi.enabled ? "已啟用" : "相容模式"}</div>
             <div>列印 Endpoint：{printerApi.printEndpoint}</div>
             <div>狀態 Endpoint：{printerApi.statusEndpoint}</div>
             <div>飛鵝帳號：{feieUser.trim() ? "已填寫" : "未填寫"}</div>
