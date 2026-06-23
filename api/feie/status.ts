@@ -14,7 +14,7 @@ type FeieResponse = {
   serverExecutedTime?: number;
 };
 
-const FEIE_STATUS_URL = "https://api.feieyun.cn/Api/Open/queryPrinterStatus";
+const FEIE_STATUS_URL = "https://api.jp.feieyun.com/Api/Open/queryPrinterStatus";
 
 function badRequest(res: VercelResponse, message: string) {
   return res.status(400).json({ ok: false, status: message });
