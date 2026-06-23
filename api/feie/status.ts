@@ -14,7 +14,7 @@ type FeieResponse = {
   serverExecutedTime?: number;
 };
 
-const FEIE_STATUS_URL = "https://api.jp.feieyun.com/Api/Open/queryPrinterStatus";
+const FEIE_STATUS_URL = "https://api.feieyun.cn/Api/Open/queryPrinterStatus";
 
 function badRequest(res: VercelResponse, message: string) {
   return res.status(400).json({ ok: false, status: message });
@@ -54,7 +54,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const response = await fetch(FEIE_STATUS_URL, {
       method: "POST",
       headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
       },
       body: params.toString(),
     });
