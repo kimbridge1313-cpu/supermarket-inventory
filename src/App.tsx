@@ -512,6 +512,75 @@ async function parseCsvFile(file: File) {
   return lines.slice(1).map((line) => line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(parseCell));
 }
 
+function normalizeLegacyText(value: unknown) {
+  return String(value ?? "")
+    .split(" ").join(" ")
+    .split("null").join("")
+    .trim();
+}
+
+function parseLegacyNumber(value: unknown) {
+  const normalized = normalizeLegacyText(value).split(",").join("");
+  const next = Number(normalized);
+  return Number.isFinite(next) ? next : 0;
+}
+
+async function parseLegacyHtmlProductFile(file: File): Promise<NewProductFields[]> {
+  const buffer = await file.arrayBuffer();
+  let html = "";
+
+  for (const encoding of ["big5", "utf-8"] as const) {
+    try {
+      html = new TextDecoder(encoding, { fatal: false }).decode(buffer);
+      if (html.includes("GSNAME") && html.includes("SALEPRICE0")) break;
+    } catch (error) {
+      console.error(`decode legacy html failed: ${encoding}`, error);
+    }
+  }
+
+  if (!html) throw new Error("無法讀取單品資料檔案");
+
+  const parser = new DOMParser();
+  const parsed = parser.parseFromString(html, "text/html");
+  const rows = Array.from(parsed.querySelectorAll("table tr"));
+  if (rows.length <= 1) throw new Error("單品資料表格為空");
+
+  const headers = Array.from(rows[0].querySelectorAll("td,th")).map((cell) => normalizeLegacyText(cell.textContent));
+  const getCell = (cells: string[], key: string) => {
+    const index = headers.indexOf(key);
+    return index >= 0 ? cells[index] ?? "" : "";
+  };
+
+  return rows
+    .slice(1)
+    .map((row) => Array.from(row.querySelectorAll("td,th")).map((cell) => normalizeLegacyText(cell.textContent)))
+    .filter((cells) => cells.length > 0)
+    .map((cells) => {
+      const barcode = normalizeLegacyText(getCell(cells, "GSNOLINK")) || normalizeLegacyText(getCell(cells, "GSNO"));
+      const name = normalizeLegacyText(getCell(cells, "GSNAME"));
+      const supplier = normalizeLegacyText(getCell(cells, "SPNAME")) || normalizeLegacyText(getCell(cells, "SPNO"));
+      const category = normalizeLegacyText(getCell(cells, "CSNAME")) || normalizeLegacyText(getCell(cells, "GSTYPE"));
+      const cost = parseLegacyNumber(getCell(cells, "PRCHLPRICE")) || parseLegacyNumber(getCell(cells, "LPRICE"));
+      const price = parseLegacyNumber(getCell(cells, "SALEPRICE0")) || parseLegacyNumber(getCell(cells, "SALEPRICE1"));
+      const untaxed = parseLegacyNumber(getCell(cells, "TAXPRICE")) || price;
+
+      return {
+        barcode,
+        name,
+        nameVi: "",
+        nameId: "",
+        translationStatus: { vi: "empty", id: "empty" },
+        category,
+        supplier,
+        cost,
+        price,
+        untaxed,
+        stock: 0,
+      } as NewProductFields;
+    })
+    .filter((item) => item.barcode && item.name);
+}
+
 async function requestAutoTranslate(text: string, target: TranslationTarget): Promise<string> {
   const normalized = text.trim();
   if (!normalized) return "";
@@ -1065,23 +1134,36 @@ function ProductMaster({
 
   const importProducts = async (file: File | null) => {
     if (!file) return;
-    const rows = await parseCsvFile(file);
-    const payload = rows
-      .map((parts) => ({
-        barcode: parts[0] || "",
-        name: parts[1] || "",
-        nameVi: parts[2] || "",
-        nameId: parts[3] || "",
-        translationStatus: { vi: (parts[4] as TranslationStatus["vi"]) || "empty", id: (parts[5] as TranslationStatus["id"]) || "empty" },
-        category: parts[6] || "",
-        supplier: parts[7] || suppliers.find((supplier) => supplier.active)?.name || "",
-        cost: Number(parts[8] || 0),
-        price: Number(parts[9] || 0),
-        untaxed: Number(parts[10] || 0),
-        stock: Number(parts[11] || 0),
-      }))
-      .filter((item) => item.barcode && item.name);
-    if (payload.length > 0) await onImportProducts(payload);
+
+    let payload: NewProductFields[] = [];
+
+    if (file.name.toLowerCase().endsWith(".htm") || file.name.toLowerCase().endsWith(".html")) {
+      payload = await parseLegacyHtmlProductFile(file);
+    } else {
+      const rows = await parseCsvFile(file);
+      payload = rows
+        .map((parts) => ({
+          barcode: parts[0] || "",
+          name: parts[1] || "",
+          nameVi: parts[2] || "",
+          nameId: parts[3] || "",
+          translationStatus: { vi: (parts[4] as TranslationStatus["vi"]) || "empty", id: (parts[5] as TranslationStatus["id"]) || "empty" },
+          category: parts[6] || "",
+          supplier: parts[7] || suppliers.find((supplier) => supplier.active)?.name || "",
+          cost: Number(parts[8] || 0),
+          price: Number(parts[9] || 0),
+          untaxed: Number(parts[10] || 0),
+          stock: Number(parts[11] || 0),
+        }))
+        .filter((item) => item.barcode && item.name);
+    }
+
+    if (payload.length > 0) {
+      await onImportProducts(payload);
+      setScanNotice(`已匯入 ${payload.length} 筆商品`);
+    } else {
+      setScanNotice("匯入檔案中沒有可用商品資料");
+    }
   };
 
   const autoTranslateCreateField = async (target: TranslationTarget) => {
@@ -1170,8 +1252,8 @@ function ProductMaster({
             <Button variant="outline" className="gap-2 rounded-xl" onClick={() => { setScanOpen(true); setScanNotice(""); }}><ScanLine className="h-4 w-4" />掃碼</Button>
             <Button className="gap-2 rounded-xl" onClick={() => { setCreateOpen(true); setCreateTranslateNotice(""); }}><Plus className="h-4 w-4" />新增</Button>
             <label className="inline-flex">
-              <input type="file" accept=".csv" className="hidden" onChange={(e) => { importProducts(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} />
-              <span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />匯入</span>
+              <input type="file" accept=".csv,.htm,.html" className="hidden" onChange={(e) => { importProducts(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} />
+              <span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />匯入 CSV / 單品資料</span>
             </label>
             <Button variant="outline" className="gap-2 rounded-xl" onClick={exportProducts}><Download className="h-4 w-4" />匯出</Button>
           </div>
