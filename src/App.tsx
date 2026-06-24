@@ -207,6 +207,8 @@ type EditableProductFields = Pick<
   | "untaxed"
 >;
 
+type TranslationTarget = "vi" | "id";
+
 const initialProducts: Product[] = [
   {
     barcode: "4710012345678",
@@ -510,6 +512,45 @@ async function parseCsvFile(file: File) {
   return lines.slice(1).map((line) => line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(parseCell));
 }
 
+async function requestAutoTranslate(text: string, target: TranslationTarget): Promise<string> {
+  const normalized = text.trim();
+  if (!normalized) return "";
+
+  const response = await fetch("/api/translate-product", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      text: normalized,
+      source: "zh-TW",
+      target,
+    }),
+  });
+
+  const rawText = await response.text();
+  let result: { text?: string; message?: string } | null = null;
+
+  if (rawText) {
+    try {
+      result = JSON.parse(rawText) as { text?: string; message?: string };
+    } catch (error) {
+      console.error("parse translate response failed", error, rawText);
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(result?.message || rawText || "自動翻譯失敗");
+  }
+
+  const translated = result?.text?.trim() || "";
+  if (!translated) {
+    throw new Error("翻譯服務沒有回傳內容");
+  }
+
+  return translated;
+}
+
 function buildFeieReceiptContent({
   storeName,
   product,
@@ -720,6 +761,8 @@ function ProductActionModal({
   onSaveEdit: (originalBarcode: string, patch: EditableProductFields) => Promise<void> | void;
 }) {
   const [editForm, setEditForm] = useState<EditableProductFields | null>(null);
+  const [translatingTarget, setTranslatingTarget] = useState<TranslationTarget | null>(null);
+  const [translateNotice, setTranslateNotice] = useState("");
 
   useEffect(() => {
     if (!action || action.type !== "edit") {
@@ -743,6 +786,37 @@ function ProductActionModal({
   if (!action) return null;
   const isEdit = action.type === "edit" && editForm !== null;
 
+  const autoTranslateEditField = async (target: TranslationTarget) => {
+    if (!editForm?.name.trim()) {
+      setTranslateNotice("請先填寫中文商品名稱");
+      return;
+    }
+
+    try {
+      setTranslatingTarget(target);
+      setTranslateNotice("");
+      const translated = await requestAutoTranslate(editForm.name, target);
+      setEditForm((prev) =>
+        prev
+          ? {
+              ...prev,
+              [target === "vi" ? "nameVi" : "nameId"]: translated,
+              translationStatus: {
+                ...prev.translationStatus,
+                [target]: "auto",
+              },
+            }
+          : prev
+      );
+      setTranslateNotice(target === "vi" ? "已自動翻譯越南文" : "已自動翻譯印尼文");
+    } catch (error) {
+      console.error("auto translate edit field failed", error);
+      setTranslateNotice(error instanceof Error ? error.message : "自動翻譯失敗");
+    } finally {
+      setTranslatingTarget(null);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 lg:items-center">
       <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
@@ -759,11 +833,11 @@ function ProductActionModal({
               <Input value={editForm.name} onChange={(e) => setEditForm((prev) => prev ? { ...prev, name: e.target.value } : prev)} className="mt-2" />
             </div>
             <div className="rounded-xl border p-3">
-              <div className="text-xs text-muted-foreground">越南文商品名稱</div>
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground"><span>越南文商品名稱</span><Button type="button" variant="outline" className="h-7 rounded-lg px-2 text-[11px]" onClick={() => autoTranslateEditField("vi")} disabled={translatingTarget !== null}>{translatingTarget === "vi" ? "翻譯中..." : "自動翻譯"}</Button></div>
               <Input value={editForm.nameVi} onChange={(e) => setEditForm((prev) => prev ? { ...prev, nameVi: e.target.value, translationStatus: { ...prev.translationStatus, vi: e.target.value.trim() ? "reviewed" : "empty" } } : prev)} className="mt-2" />
             </div>
             <div className="rounded-xl border p-3">
-              <div className="text-xs text-muted-foreground">印尼文商品名稱</div>
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground"><span>印尼文商品名稱</span><Button type="button" variant="outline" className="h-7 rounded-lg px-2 text-[11px]" onClick={() => autoTranslateEditField("id")} disabled={translatingTarget !== null}>{translatingTarget === "id" ? "翻譯中..." : "自動翻譯"}</Button></div>
               <Input value={editForm.nameId} onChange={(e) => setEditForm((prev) => prev ? { ...prev, nameId: e.target.value, translationStatus: { ...prev.translationStatus, id: e.target.value.trim() ? "reviewed" : "empty" } } : prev)} className="mt-2" />
             </div>
             <div className="rounded-xl border p-3">
@@ -796,7 +870,9 @@ function ProductActionModal({
             </div>
           </div>
         )}
-        <div className="grid grid-cols-2 gap-2 border-t p-4">
+        {translateNotice ? <div className="px-4 pt-3 text-sm text-muted-foreground">{translateNotice}</div> : null}
+        {createTranslateNotice ? <div className="px-4 pt-3 text-sm text-muted-foreground">{createTranslateNotice}</div> : null}
+                <div className="grid grid-cols-2 gap-2 border-t p-4">
           <Button variant="outline" className="rounded-xl" onClick={onClose}>關閉</Button>
           <Button className="rounded-xl" onClick={async () => { if (isEdit && editForm) await onSaveEdit(action.product.barcode, editForm); onClose(); }}>
             {isEdit ? "儲存修改" : "確認"}
@@ -907,6 +983,8 @@ function ProductMaster({
   const [scanOpen, setScanOpen] = useState(false);
   const [scanValue, setScanValue] = useState("");
   const [scanNotice, setScanNotice] = useState("");
+  const [createTranslateNotice, setCreateTranslateNotice] = useState("");
+  const [createTranslatingTarget, setCreateTranslatingTarget] = useState<TranslationTarget | null>(null);
   const [createForm, setCreateForm] = useState<NewProductFields>({
     barcode: "",
     name: "",
@@ -963,6 +1041,33 @@ function ProductMaster({
     if (payload.length > 0) await onImportProducts(payload);
   };
 
+  const autoTranslateCreateField = async (target: TranslationTarget) => {
+    if (!createForm.name.trim()) {
+      setCreateTranslateNotice("請先填寫中文商品名稱");
+      return;
+    }
+
+    try {
+      setCreateTranslatingTarget(target);
+      setCreateTranslateNotice("");
+      const translated = await requestAutoTranslate(createForm.name, target);
+      setCreateForm((prev) => ({
+        ...prev,
+        [target === "vi" ? "nameVi" : "nameId"]: translated,
+        translationStatus: {
+          ...prev.translationStatus,
+          [target]: "auto",
+        },
+      }));
+      setCreateTranslateNotice(target === "vi" ? "已自動翻譯越南文" : "已自動翻譯印尼文");
+    } catch (error) {
+      console.error("auto translate create field failed", error);
+      setCreateTranslateNotice(error instanceof Error ? error.message : "自動翻譯失敗");
+    } finally {
+      setCreateTranslatingTarget(null);
+    }
+  };
+
   const handleScanSearch = () => {
     const matched = findProductByQuery(products, scanValue);
     if (!matched) {
@@ -989,7 +1094,7 @@ function ProductMaster({
               <Input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="搜尋商品名稱 / 條碼 / 廠商" />
             </div>
             <Button variant="outline" className="gap-2 rounded-xl" onClick={() => { setScanOpen(true); setScanNotice(""); }}><ScanLine className="h-4 w-4" />掃碼</Button>
-            <Button className="gap-2 rounded-xl" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />新增</Button>
+            <Button className="gap-2 rounded-xl" onClick={() => setCreateOpen(true); setCreateTranslateNotice("")}><Plus className="h-4 w-4" />新增</Button>
             <label className="inline-flex">
               <input type="file" accept=".csv" className="hidden" onChange={(e) => { importProducts(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} />
               <span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />匯入</span>
@@ -1035,8 +1140,8 @@ function ProductMaster({
                 <div className="border-b p-4"><div className="text-lg font-semibold">新增商品</div><div className="mt-1 text-sm text-muted-foreground">新增後會直接寫入 Firebase 商品主檔。</div></div>
                 <div className="space-y-3 p-4 text-sm">
                   <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">中文商品名稱</div><Input value={createForm.name} onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))} className="mt-2" /></div>
-                  <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">越南文商品名稱</div><Input value={createForm.nameVi} onChange={(e) => setCreateForm((prev) => ({ ...prev, nameVi: e.target.value, translationStatus: { ...prev.translationStatus, vi: e.target.value.trim() ? "reviewed" : "empty" } }))} className="mt-2" /></div>
-                  <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">印尼文商品名稱</div><Input value={createForm.nameId} onChange={(e) => setCreateForm((prev) => ({ ...prev, nameId: e.target.value, translationStatus: { ...prev.translationStatus, id: e.target.value.trim() ? "reviewed" : "empty" } }))} className="mt-2" /></div>
+                  <div className="rounded-xl border p-3"><div className="flex items-center justify-between gap-2 text-xs text-muted-foreground"><span>越南文商品名稱</span><Button type="button" variant="outline" className="h-7 rounded-lg px-2 text-[11px]" onClick={() => autoTranslateCreateField("vi")} disabled={createTranslatingTarget !== null}>{createTranslatingTarget === "vi" ? "翻譯中..." : "自動翻譯"}</Button></div><Input value={createForm.nameVi} onChange={(e) => setCreateForm((prev) => ({ ...prev, nameVi: e.target.value, translationStatus: { ...prev.translationStatus, vi: e.target.value.trim() ? "reviewed" : "empty" } }))} className="mt-2" /></div>
+                  <div className="rounded-xl border p-3"><div className="flex items-center justify-between gap-2 text-xs text-muted-foreground"><span>印尼文商品名稱</span><Button type="button" variant="outline" className="h-7 rounded-lg px-2 text-[11px]" onClick={() => autoTranslateCreateField("id")} disabled={createTranslatingTarget !== null}>{createTranslatingTarget === "id" ? "翻譯中..." : "自動翻譯"}</Button></div><Input value={createForm.nameId} onChange={(e) => setCreateForm((prev) => ({ ...prev, nameId: e.target.value, translationStatus: { ...prev.translationStatus, id: e.target.value.trim() ? "reviewed" : "empty" } }))} className="mt-2" /></div>
                   <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">商品條碼</div><Input value={createForm.barcode} onChange={(e) => setCreateForm((prev) => ({ ...prev, barcode: e.target.value }))} className="mt-2" /></div>
                   <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">分類</div><Input value={createForm.category} onChange={(e) => setCreateForm((prev) => ({ ...prev, category: e.target.value }))} className="mt-2" /></div>
                   <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">廠商</div><select value={createForm.supplier} onChange={(e) => setCreateForm((prev) => ({ ...prev, supplier: e.target.value }))} className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">{suppliers.filter((supplier) => supplier.active).map((supplier) => <option key={supplier.id} value={supplier.name}>{supplier.name}</option>)}</select></div>
