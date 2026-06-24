@@ -46,6 +46,11 @@ import {
 import { GoogleAuthProvider, getAuth, onAuthStateChanged, signInWithPopup, signOut, type User } from "firebase/auth";
 import { app, db } from "@/lib/firebase";
 
+type TranslationStatus = {
+  vi: "empty" | "auto" | "reviewed";
+  id: "empty" | "auto" | "reviewed";
+};
+
 type HistoryRecord = {
   date: string;
   type: "進貨" | "退貨";
@@ -58,6 +63,9 @@ type Product = {
   docId?: string;
   barcode: string;
   name: string;
+  nameVi: string;
+  nameId: string;
+  translationStatus: TranslationStatus;
   category: string;
   supplier: string;
   cost: number;
@@ -101,6 +109,9 @@ type LabelTemplate = {
   id: string;
   name: string;
   paperSize: string;
+  showNameZh: boolean;
+  showNameVi: boolean;
+  showNameId: boolean;
   showCategory: boolean;
   showBarcode: boolean;
   showSpec: boolean;
@@ -171,6 +182,9 @@ type ProductAction =
 type NewProductFields = {
   barcode: string;
   name: string;
+  nameVi: string;
+  nameId: string;
+  translationStatus: TranslationStatus;
   category: string;
   supplier: string;
   cost: number;
@@ -181,13 +195,25 @@ type NewProductFields = {
 
 type EditableProductFields = Pick<
   Product,
-  "name" | "barcode" | "category" | "supplier" | "cost" | "price" | "untaxed"
+  | "name"
+  | "nameVi"
+  | "nameId"
+  | "translationStatus"
+  | "barcode"
+  | "category"
+  | "supplier"
+  | "cost"
+  | "price"
+  | "untaxed"
 >;
 
 const initialProducts: Product[] = [
   {
     barcode: "4710012345678",
     name: "可口可樂 600ml",
+    nameVi: "Coca-Cola 600ml",
+    nameId: "Coca-Cola 600ml",
+    translationStatus: { vi: "reviewed", id: "reviewed" },
     category: "飲料",
     supplier: "大發商行",
     cost: 21,
@@ -203,6 +229,9 @@ const initialProducts: Product[] = [
   {
     barcode: "4710098765432",
     name: "統一鮮奶吐司",
+    nameVi: "Bánh mì sữa tươi Uni-President",
+    nameId: "Roti tawar susu Uni-President",
+    translationStatus: { vi: "auto", id: "auto" },
     category: "麵包",
     supplier: "晨光食品",
     cost: 28,
@@ -217,6 +246,9 @@ const initialProducts: Product[] = [
   {
     barcode: "4710001122334",
     name: "義美雞蛋豆腐",
+    nameVi: "Đậu phụ trứng I-Mei",
+    nameId: "Tahu telur I-Mei",
+    translationStatus: { vi: "auto", id: "auto" },
     category: "冷藏",
     supplier: "信成冷鏈",
     cost: 19,
@@ -293,6 +325,9 @@ const initialLabelTemplates: LabelTemplate[] = [
     id: "tpl-a",
     name: "模板 A｜標準售價卡",
     paperSize: "4 × 6 cm",
+    showNameZh: true,
+    showNameVi: false,
+    showNameId: false,
     showCategory: false,
     showBarcode: true,
     showSpec: true,
@@ -360,7 +395,15 @@ function findProductByQuery(list: Product[], queryText: string): Product | null 
   if (!normalized) return null;
   return (
     list.find(
-      (item) => item.barcode.includes(normalized) || item.name.includes(normalized)
+      (item) =>
+        item.barcode.includes(normalized) ||
+        item.name.includes(normalized) ||
+        item.nameVi.includes(normalized) ||
+        item.nameId.includes(normalized)
+    ) ?? null
+  );
+        item.nameVi.includes(normalized) ||
+        item.nameId.includes(normalized)
     ) ?? null
   );
 }
@@ -467,11 +510,7 @@ async function parseCsvFile(file: File) {
   const text = await file.text();
   const lines = text.replace(/^\ufeff/, "").split(/\r?\n/).filter(Boolean);
   if (lines.length <= 1) return [];
-  const parseCell = (cell: string) => cell.replace(/^"|"$/g, "").replace(/""/g, '"').trim();
-  return lines.slice(1).map((line) => line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(parseCell));
-}
-
-function buildFeieReceiptContent({
+  const parseCell = (cell: string) => cell.replace(/^"|"$/g, "").replace(/""/g, '"').trim(function buildFeieReceiptContent({
   storeName,
   product,
   template,
@@ -489,7 +528,33 @@ function buildFeieReceiptContent({
   }
 
   lines.push(normalizeStoreName(storeName));
-  lines.push(`<B>${product.name}</B>`);
+
+  if (template.showNameZh) {
+    lines.push(`<B>${product.name}</B>`);
+  }
+
+  if (template.showNameVi && product.nameVi.trim()) {
+    lines.push(product.nameVi.trim());
+  }
+
+  if (template.showNameId && product.nameId.trim()) {
+    lines.push(product.nameId.trim());
+  }
+
+  if (template.showSpec) {
+    lines.push(`規格：600ml`);
+  }
+
+  lines.push(`<RIGHT><B><B>${product.price}</B></B>元</RIGHT>`);
+
+  return lines.join("<BR>");
+}showNameVi && product.nameVi.trim()) {
+    lines.push(product.nameVi.trim());
+  }
+
+  if (template.showNameId && product.nameId.trim()) {
+    lines.push(product.nameId.trim());
+  }
 
   if (template.showSpec) {
     lines.push(`規格：600ml`);
