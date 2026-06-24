@@ -755,8 +755,16 @@ function ProductActionModal({
         {isEdit ? (
           <div className="space-y-3 p-4 text-sm">
             <div className="rounded-xl border p-3">
-              <div className="text-xs text-muted-foreground">商品名稱</div>
+              <div className="text-xs text-muted-foreground">中文商品名稱</div>
               <Input value={editForm.name} onChange={(e) => setEditForm((prev) => prev ? { ...prev, name: e.target.value } : prev)} className="mt-2" />
+            </div>
+            <div className="rounded-xl border p-3">
+              <div className="text-xs text-muted-foreground">越南文商品名稱</div>
+              <Input value={editForm.nameVi} onChange={(e) => setEditForm((prev) => prev ? { ...prev, nameVi: e.target.value, translationStatus: { ...prev.translationStatus, vi: e.target.value.trim() ? "reviewed" : "empty" } } : prev)} className="mt-2" />
+            </div>
+            <div className="rounded-xl border p-3">
+              <div className="text-xs text-muted-foreground">印尼文商品名稱</div>
+              <Input value={editForm.nameId} onChange={(e) => setEditForm((prev) => prev ? { ...prev, nameId: e.target.value, translationStatus: { ...prev.translationStatus, id: e.target.value.trim() ? "reviewed" : "empty" } } : prev)} className="mt-2" />
             </div>
             <div className="rounded-xl border p-3">
               <div className="text-xs text-muted-foreground">商品條碼</div>
@@ -1026,7 +1034,9 @@ function ProductMaster({
               <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
                 <div className="border-b p-4"><div className="text-lg font-semibold">新增商品</div><div className="mt-1 text-sm text-muted-foreground">新增後會直接寫入 Firebase 商品主檔。</div></div>
                 <div className="space-y-3 p-4 text-sm">
-                  <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">商品名稱</div><Input value={createForm.name} onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))} className="mt-2" /></div>
+                  <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">中文商品名稱</div><Input value={createForm.name} onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))} className="mt-2" /></div>
+                  <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">越南文商品名稱</div><Input value={createForm.nameVi} onChange={(e) => setCreateForm((prev) => ({ ...prev, nameVi: e.target.value, translationStatus: { ...prev.translationStatus, vi: e.target.value.trim() ? "reviewed" : "empty" } }))} className="mt-2" /></div>
+                  <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">印尼文商品名稱</div><Input value={createForm.nameId} onChange={(e) => setCreateForm((prev) => ({ ...prev, nameId: e.target.value, translationStatus: { ...prev.translationStatus, id: e.target.value.trim() ? "reviewed" : "empty" } }))} className="mt-2" /></div>
                   <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">商品條碼</div><Input value={createForm.barcode} onChange={(e) => setCreateForm((prev) => ({ ...prev, barcode: e.target.value }))} className="mt-2" /></div>
                   <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">分類</div><Input value={createForm.category} onChange={(e) => setCreateForm((prev) => ({ ...prev, category: e.target.value }))} className="mt-2" /></div>
                   <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">廠商</div><select value={createForm.supplier} onChange={(e) => setCreateForm((prev) => ({ ...prev, supplier: e.target.value }))} className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">{suppliers.filter((supplier) => supplier.active).map((supplier) => <option key={supplier.id} value={supplier.name}>{supplier.name}</option>)}</select></div>
@@ -1702,6 +1712,9 @@ function LabelTemplateManager({
                         <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">模板名稱</div><Input value={draft.name} onChange={(e) => setDraftTemplates((prev) => prev.map((item) => item.id === template.id ? { ...item, name: e.target.value } : item))} className="mt-2" /></div>
                         <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">紙張尺寸</div><Input value={draft.paperSize} onChange={(e) => setDraftTemplates((prev) => prev.map((item) => item.id === template.id ? { ...item, paperSize: e.target.value } : item))} className="mt-2" /></div>
                         <div className="rounded-xl border p-3 space-y-3 text-sm">
+                          <label className="flex items-center justify-between"><span>顯示中文名</span><input type="checkbox" checked={draft.showNameZh} onChange={() => setDraftTemplates((prev) => prev.map((item) => item.id === template.id ? { ...item, showNameZh: !item.showNameZh } : item))} /></label>
+                          <label className="flex items-center justify-between"><span>顯示越南文名</span><input type="checkbox" checked={draft.showNameVi} onChange={() => setDraftTemplates((prev) => prev.map((item) => item.id === template.id ? { ...item, showNameVi: !item.showNameVi } : item))} /></label>
+                          <label className="flex items-center justify-between"><span>顯示印尼文名</span><input type="checkbox" checked={draft.showNameId} onChange={() => setDraftTemplates((prev) => prev.map((item) => item.id === template.id ? { ...item, showNameId: !item.showNameId } : item))} /></label>
                           <label className="flex items-center justify-between"><span>顯示分類</span><input type="checkbox" checked={draft.showCategory} onChange={() => setDraftTemplates((prev) => prev.map((item) => item.id === template.id ? { ...item, showCategory: !item.showCategory } : item))} /></label>
                           <label className="flex items-center justify-between"><span>顯示條碼</span><input type="checkbox" checked={draft.showBarcode} onChange={() => setDraftTemplates((prev) => prev.map((item) => item.id === template.id ? { ...item, showBarcode: !item.showBarcode } : item))} /></label>
                           <label className="flex items-center justify-between"><span>顯示規格</span><input type="checkbox" checked={draft.showSpec} onChange={() => setDraftTemplates((prev) => prev.map((item) => item.id === template.id ? { ...item, showSpec: !item.showSpec } : item))} /></label>
@@ -1923,6 +1936,12 @@ export default function SupermarketInventoryFrontendPrototype() {
             docId: snapshot.id,
             barcode: String(data.barcode ?? ""),
             name: String(data.name ?? ""),
+            nameVi: String(data.nameVi ?? ""),
+            nameId: String(data.nameId ?? ""),
+            translationStatus: {
+              vi: (data.translationStatus?.vi ?? "empty") as TranslationStatus["vi"],
+              id: (data.translationStatus?.id ?? "empty") as TranslationStatus["id"],
+            },
             category: String(data.category ?? ""),
             supplier: String(data.supplier ?? ""),
             cost: Number(data.cost ?? 0),
@@ -1959,7 +1978,23 @@ export default function SupermarketInventoryFrontendPrototype() {
           } as BatchRecord;
         });
 
-        const remoteTemplates = templateSnap.docs.map((snapshot) => ({ id: snapshot.id, ...(snapshot.data() as Omit<LabelTemplate, "id">) } as LabelTemplate));
+        const remoteTemplates = templateSnap.docs.map((snapshot) => {
+          const data = snapshot.data();
+          return {
+            id: snapshot.id,
+            name: String(data.name ?? "新模板"),
+            paperSize: String(data.paperSize ?? "4 × 6 cm"),
+            showNameZh: Boolean(data.showNameZh ?? true),
+            showNameVi: Boolean(data.showNameVi ?? false),
+            showNameId: Boolean(data.showNameId ?? false),
+            showCategory: Boolean(data.showCategory ?? false),
+            showBarcode: Boolean(data.showBarcode ?? true),
+            showSpec: Boolean(data.showSpec ?? true),
+            showUpdatedDate: Boolean(data.showUpdatedDate ?? false),
+            priceSize: (data.priceSize ?? "lg") as LabelTemplate["priceSize"],
+            active: Boolean(data.active ?? false),
+          } as LabelTemplate;
+        });
         const remotePrinters = printerSnap.docs.map((snapshot) => ({ id: snapshot.id, ...(snapshot.data() as Omit<PrinterDevice, "id">) } as PrinterDevice));
         const remoteSettingsDoc = settingsSnap.docs[0];
 
@@ -2121,7 +2156,7 @@ export default function SupermarketInventoryFrontendPrototype() {
   };
 
   const saveTemplate = async (template: LabelTemplate) => {
-    await setDoc(doc(db, "labelTemplates", template.id), { name: template.name, paperSize: template.paperSize, showCategory: template.showCategory, showBarcode: template.showBarcode, showSpec: template.showSpec, showUpdatedDate: template.showUpdatedDate, priceSize: template.priceSize, active: template.active });
+    await setDoc(doc(db, "labelTemplates", template.id), { name: template.name, paperSize: template.paperSize, showNameZh: template.showNameZh, showNameVi: template.showNameVi, showNameId: template.showNameId, showCategory: template.showCategory, showBarcode: template.showBarcode, showSpec: template.showSpec, showUpdatedDate: template.showUpdatedDate, priceSize: template.priceSize, active: template.active });
     setTemplates((prev) => prev.map((item) => item.id === template.id ? template : item));
   };
 
@@ -2133,7 +2168,7 @@ export default function SupermarketInventoryFrontendPrototype() {
   const setActiveTemplate = async (templateId: string) => {
     const nextTemplates = templates.map((item) => ({ ...item, active: item.id === templateId }));
     for (const template of nextTemplates) {
-      await setDoc(doc(db, "labelTemplates", template.id), { name: template.name, paperSize: template.paperSize, showCategory: template.showCategory, showBarcode: template.showBarcode, showSpec: template.showSpec, showUpdatedDate: template.showUpdatedDate, priceSize: template.priceSize, active: template.active });
+      await setDoc(doc(db, "labelTemplates", template.id), { name: template.name, paperSize: template.paperSize, showNameZh: template.showNameZh, showNameVi: template.showNameVi, showNameId: template.showNameId, showCategory: template.showCategory, showBarcode: template.showBarcode, showSpec: template.showSpec, showUpdatedDate: template.showUpdatedDate, priceSize: template.priceSize, active: template.active });
     }
     setTemplates(nextTemplates);
   };
