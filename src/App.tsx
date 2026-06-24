@@ -871,8 +871,7 @@ function ProductActionModal({
           </div>
         )}
         {translateNotice ? <div className="px-4 pt-3 text-sm text-muted-foreground">{translateNotice}</div> : null}
-        {createTranslateNotice ? <div className="px-4 pt-3 text-sm text-muted-foreground">{createTranslateNotice}</div> : null}
-                <div className="grid grid-cols-2 gap-2 border-t p-4">
+        <div className="grid grid-cols-2 gap-2 border-t p-4">
           <Button variant="outline" className="rounded-xl" onClick={onClose}>關閉</Button>
           <Button className="rounded-xl" onClick={async () => { if (isEdit && editForm) await onSaveEdit(action.product.barcode, editForm); onClose(); }}>
             {isEdit ? "儲存修改" : "確認"}
@@ -1152,6 +1151,7 @@ function ProductMaster({
                     <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">庫存</div><Input type="number" value={createForm.stock} onChange={(e) => setCreateForm((prev) => ({ ...prev, stock: Number(e.target.value) }))} className="mt-2" /></div>
                   </div>
                 </div>
+                {createTranslateNotice ? <div className="px-4 pt-3 text-sm text-muted-foreground">{createTranslateNotice}</div> : null}
                 <div className="grid grid-cols-2 gap-2 border-t p-4">
                   <Button variant="outline" className="rounded-xl" onClick={() => setCreateOpen(false)}>取消</Button>
                   <Button className="rounded-xl" onClick={async () => { await onCreateProduct(createForm); setCreateOpen(false); setCreateForm({
