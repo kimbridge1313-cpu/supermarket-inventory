@@ -402,10 +402,6 @@ function findProductByQuery(list: Product[], queryText: string): Product | null 
         item.nameId.includes(normalized)
     ) ?? null
   );
-        item.nameVi.includes(normalized) ||
-        item.nameId.includes(normalized)
-    ) ?? null
-  );
 }
 
 function getLowStockCount(list: Product[], threshold = 10): number {
@@ -453,9 +449,9 @@ function normalizeStoreName(value: string): string {
 
 function buildFeieBarcodeTag(value: string) {
   const normalized = normalizeBarcodeValue(value);
-  const isDigitsOnly = new RegExp("^[0-9]+$").test(normalized);
-  const isUpperAlphaNumeric = new RegExp("^[0-9A-Z]+$").test(normalized);
-  const isMixedAlphaNumeric = new RegExp("^[0-9A-Za-z!@#$%^&*()\-=+_]+$").test(normalized);
+  const isDigitsOnly = /^[0-9]+$/.test(normalized);
+  const isUpperAlphaNumeric = /^[0-9A-Z]+$/.test(normalized);
+  const isMixedAlphaNumeric = /^[0-9A-Za-z!@#$%^&*()\-_=+]+$/.test(normalized);
 
   if (isDigitsOnly && normalized.length <= 22) {
     return `<BC128_C>${normalized}</BC128_C>`;
@@ -510,7 +506,11 @@ async function parseCsvFile(file: File) {
   const text = await file.text();
   const lines = text.replace(/^\ufeff/, "").split(/\r?\n/).filter(Boolean);
   if (lines.length <= 1) return [];
-  const parseCell = (cell: string) => cell.replace(/^"|"$/g, "").replace(/""/g, '"').trim(function buildFeieReceiptContent({
+  const parseCell = (cell: string) => cell.replace(/^"|"$/g, "").replace(/""/g, '"').trim();
+  return lines.slice(1).map((line) => line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(parseCell));
+}
+
+function buildFeieReceiptContent({
   storeName,
   product,
   template,
@@ -534,21 +534,6 @@ async function parseCsvFile(file: File) {
   }
 
   if (template.showNameVi && product.nameVi.trim()) {
-    lines.push(product.nameVi.trim());
-  }
-
-  if (template.showNameId && product.nameId.trim()) {
-    lines.push(product.nameId.trim());
-  }
-
-  if (template.showSpec) {
-    lines.push(`規格：600ml`);
-  }
-
-  lines.push(`<RIGHT><B><B>${product.price}</B></B>元</RIGHT>`);
-
-  return lines.join("<BR>");
-}showNameVi && product.nameVi.trim()) {
     lines.push(product.nameVi.trim());
   }
 
@@ -914,6 +899,9 @@ function ProductMaster({
   const [createForm, setCreateForm] = useState<NewProductFields>({
     barcode: "",
     name: "",
+    nameVi: "",
+    nameId: "",
+    translationStatus: { vi: "empty", id: "empty" },
     category: "",
     supplier: suppliers.find((supplier) => supplier.active)?.name ?? "",
     cost: 0,
@@ -926,14 +914,19 @@ function ProductMaster({
     const q = queryText.trim();
     if (!q) return products;
     return products.filter(
-      (p) => p.name.includes(q) || p.barcode.includes(q) || p.supplier.includes(q)
+      (p) =>
+        p.name.includes(q) ||
+        p.nameVi.includes(q) ||
+        p.nameId.includes(q) ||
+        p.barcode.includes(q) ||
+        p.supplier.includes(q)
     );
   }, [products, queryText]);
 
   const exportProducts = () => {
     const csv = makeCsv([
-      ["barcode", "name", "category", "supplier", "cost", "price", "untaxed", "stock"],
-      ...products.map((product) => [product.barcode, product.name, product.category, product.supplier, product.cost, product.price, product.untaxed, product.stock]),
+      ["barcode", "name", "nameVi", "nameId", "translationStatusVi", "translationStatusId", "category", "supplier", "cost", "price", "untaxed", "stock"],
+      ...products.map((product) => [product.barcode, product.name, product.nameVi, product.nameId, product.translationStatus.vi, product.translationStatus.id, product.category, product.supplier, product.cost, product.price, product.untaxed, product.stock]),
     ]);
     downloadCsv("products-export.csv", csv);
   };
@@ -945,12 +938,15 @@ function ProductMaster({
       .map((parts) => ({
         barcode: parts[0] || "",
         name: parts[1] || "",
-        category: parts[2] || "",
-        supplier: parts[3] || suppliers.find((supplier) => supplier.active)?.name || "",
-        cost: Number(parts[4] || 0),
-        price: Number(parts[5] || 0),
-        untaxed: Number(parts[6] || 0),
-        stock: Number(parts[7] || 0),
+        nameVi: parts[2] || "",
+        nameId: parts[3] || "",
+        translationStatus: { vi: (parts[4] as TranslationStatus["vi"]) || "empty", id: (parts[5] as TranslationStatus["id"]) || "empty" },
+        category: parts[6] || "",
+        supplier: parts[7] || suppliers.find((supplier) => supplier.active)?.name || "",
+        cost: Number(parts[8] || 0),
+        price: Number(parts[9] || 0),
+        untaxed: Number(parts[10] || 0),
+        stock: Number(parts[11] || 0),
       }))
       .filter((item) => item.barcode && item.name);
     if (payload.length > 0) await onImportProducts(payload);
@@ -2104,7 +2100,7 @@ export default function SupermarketInventoryFrontendPrototype() {
   };
 
   const createTemplate = async () => {
-    const payload: Omit<LabelTemplate, "id"> = { name: "新模板", paperSize: "4 × 6 cm", showCategory: true, showBarcode: true, showSpec: false, showUpdatedDate: false, priceSize: "md", active: false };
+    const payload: Omit<LabelTemplate, "id"> = { name: "新模板", paperSize: "4 × 6 cm", showNameZh: true, showNameVi: false, showNameId: false, showCategory: true, showBarcode: true, showSpec: false, showUpdatedDate: false, priceSize: "md", active: false };
     const docRef = await addDoc(collection(db, "labelTemplates"), payload);
     setTemplates((prev) => [{ id: docRef.id, ...payload }, ...prev]);
   };
