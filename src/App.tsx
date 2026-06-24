@@ -728,6 +728,9 @@ function ProductActionModal({
     }
     setEditForm({
       name: action.product.name,
+      nameVi: action.product.nameVi,
+      nameId: action.product.nameId,
+      translationStatus: action.product.translationStatus,
       barcode: action.product.barcode,
       category: action.product.category,
       supplier: action.product.supplier,
@@ -1036,7 +1039,19 @@ function ProductMaster({
                 </div>
                 <div className="grid grid-cols-2 gap-2 border-t p-4">
                   <Button variant="outline" className="rounded-xl" onClick={() => setCreateOpen(false)}>取消</Button>
-                  <Button className="rounded-xl" onClick={async () => { await onCreateProduct(createForm); setCreateOpen(false); setCreateForm({ barcode: "", name: "", category: "", supplier: suppliers.find((supplier) => supplier.active)?.name ?? "", cost: 0, price: 0, untaxed: 0, stock: 0 }); }}>儲存新增</Button>
+                  <Button className="rounded-xl" onClick={async () => { await onCreateProduct(createForm); setCreateOpen(false); setCreateForm({
+                        barcode: "",
+                        name: "",
+                        nameVi: "",
+                        nameId: "",
+                        translationStatus: { vi: "empty", id: "empty" },
+                        category: "",
+                        supplier: suppliers.find((supplier) => supplier.active)?.name ?? "",
+                        cost: 0,
+                        price: 0,
+                        untaxed: 0,
+                        stock: 0,
+                      }); }}>儲存新增</Button>
                 </div>
               </div>
             </div>
