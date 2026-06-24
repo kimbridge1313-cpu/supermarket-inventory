@@ -1093,7 +1093,7 @@ function ProductMaster({
               <Input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="搜尋商品名稱 / 條碼 / 廠商" />
             </div>
             <Button variant="outline" className="gap-2 rounded-xl" onClick={() => { setScanOpen(true); setScanNotice(""); }}><ScanLine className="h-4 w-4" />掃碼</Button>
-            <Button className="gap-2 rounded-xl" onClick={() => setCreateOpen(true); setCreateTranslateNotice("")}><Plus className="h-4 w-4" />新增</Button>
+            <Button className="gap-2 rounded-xl" onClick={() => { setCreateOpen(true); setCreateTranslateNotice(""); }}><Plus className="h-4 w-4" />新增</Button>
             <label className="inline-flex">
               <input type="file" accept=".csv" className="hidden" onChange={(e) => { importProducts(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} />
               <span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />匯入</span>
