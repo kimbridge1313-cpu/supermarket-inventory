@@ -1983,13 +1983,19 @@ function SupplierManager({
   const exportSuppliers = () => {
     const rows = [
       ["code", "name", "contact", "phone", "note", "active"],
-      ...draftSuppliers.map((supplier) => [supplier.code, supplier.name, supplier.contact, supplier.phone, supplier.note, supplier.active ? "TRUE" : "FALSE"]),
+      ...draftSuppliers.map((supplier) => [
+        supplier.code,
+        supplier.name,
+        supplier.contact,
+        supplier.phone,
+        supplier.note,
+        supplier.active ? "TRUE" : "FALSE",
+      ]),
     ];
     const csv = rows
       .map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
-      .join("
-");
-    const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8;" });
+      .join("\n");
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
