@@ -1959,7 +1959,6 @@ function SupplierManager({
   onDeleteAllSuppliers: () => Promise<void> | void;
 }) {
   const [queryText, setQueryText] = useState("");
-  const [openId, setOpenId] = useState<string>(suppliers[0]?.id ?? "");
   const [draftSuppliers, setDraftSuppliers] = useState<Supplier[]>(suppliers);
   const [supplierNotice, setSupplierNotice] = useState("");
   const [importingSuppliers, setImportingSuppliers] = useState(false);
@@ -1969,18 +1968,34 @@ function SupplierManager({
     setDraftSuppliers(suppliers);
   }, [suppliers]);
 
-  const filtered = useMemo(() => {
+  const filteredSuppliers = useMemo(() => {
     const q = queryText.trim();
     if (!q) return draftSuppliers;
-    return draftSuppliers.filter((s) => s.name.includes(q) || s.code.includes(q) || s.contact.includes(q) || s.phone.includes(q));
+    return draftSuppliers.filter(
+      (supplier) =>
+        supplier.code.includes(q) ||
+        supplier.name.includes(q) ||
+        supplier.contact.includes(q) ||
+        supplier.phone.includes(q)
+    );
   }, [draftSuppliers, queryText]);
 
   const exportSuppliers = () => {
-    const csv = makeCsv([
+    const rows = [
       ["code", "name", "contact", "phone", "note", "active"],
-      ...draftSuppliers.map((supplier) => [supplier.code, supplier.name, supplier.contact, supplier.phone, supplier.note, supplier.active]),
-    ]);
-    downloadCsv("suppliers-export.csv", csv);
+      ...draftSuppliers.map((supplier) => [supplier.code, supplier.name, supplier.contact, supplier.phone, supplier.note, supplier.active ? "TRUE" : "FALSE"]),
+    ];
+    const csv = rows
+      .map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
+      .join("
+");
+    const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `suppliers-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const importSuppliers = async (file: File | null) => {
@@ -1989,11 +2004,10 @@ function SupplierManager({
     try {
       setImportingSuppliers(true);
       setSupplierNotice(`正在匯入：${file.name}`);
-
       const rows = await parseCsvFile(file);
       const payload = rows
         .map((parts, index) => {
-          const activeRaw = (parts[5] || "TRUE").trim().toLowerCase();
+          const activeRaw = String(parts[5] || "TRUE").trim().toLowerCase();
           const active = !["false", "0", "no", "n", "否", "停用"].includes(activeRaw);
           return {
             id: `import-${Date.now()}-${index}`,
@@ -2003,7 +2017,7 @@ function SupplierManager({
             phone: parts[3] || "",
             note: parts[4] || "",
             active,
-          };
+          } as Supplier;
         })
         .filter((item) => item.name.trim());
 
@@ -2022,47 +2036,85 @@ function SupplierManager({
     }
   };
 
-  const updateLocalSupplier = (supplierId: string, patch: Partial<Supplier>) => setDraftSuppliers((prev) => prev.map((item) => item.id === supplierId ? { ...item, ...patch } : item));
-
   return (
-    <Card className="rounded-2xl shadow-sm">
-      <CardHeader><CardTitle>廠商資料</CardTitle><CardDescription>新增 / 修改 / 刪除 / 匯入 / 匯出都已接 Firebase。</CardDescription></CardHeader>
+    <Card className="rounded-3xl border-none shadow-lg">
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <CardTitle>廠商資料</CardTitle>
+            <div className="mt-1 text-sm text-muted-foreground">支援查詢、新增、匯入匯出與清空。</div>
+          </div>
+          <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs">{draftSuppliers.length} 家廠商</Badge>
+        </div>
+      </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-wrap gap-2"><Input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="搜尋廠商名稱 / 編號 / 聯絡人 / 電話" className="min-w-[220px] flex-1" /><Button variant="outline" className="gap-2 rounded-xl" onClick={exportSuppliers}><Download className="h-4 w-4" />匯出</Button><label className="inline-flex"><input type="file" accept=".csv" className="hidden" onChange={(e) => { importSuppliers(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} /><span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />{importingSuppliers ? "匯入中..." : "匯入"}</span></label><Button variant="outline" className="gap-2 rounded-xl" disabled={deletingAllSuppliers} onClick={async () => {
-          try {
-            setDeletingAllSuppliers(true);
-            setSupplierNotice("正在清空全部廠商...");
-            await onDeleteAllSuppliers();
-            setSupplierNotice("已清空全部廠商資料");
-          } catch (error) {
-            console.error("delete all suppliers failed", error);
-            setSupplierNotice(error instanceof Error ? `清空失敗：${error.message}` : "清空失敗");
-          } finally {
-            setDeletingAllSuppliers(false);
-          }
-        }}><Trash2 className="h-4 w-4" />{deletingAllSuppliers ? "清空中..." : "清空廠商"}</Button><Button className="gap-2 rounded-xl" onClick={() => onCreateSupplier()}><Plus className="h-4 w-4" />新增廠商</Button></div>
+        <div className="flex flex-wrap gap-2">
+          <Input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="搜尋廠商名稱 / 編號 / 聯絡人 / 電話" className="min-w-[220px] flex-1" />
+          <Button variant="outline" className="gap-2 rounded-xl" onClick={exportSuppliers}><Download className="h-4 w-4" />匯出</Button>
+          <label className="inline-flex">
+            <input type="file" accept=".csv" className="hidden" onChange={(e) => { importSuppliers(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} />
+            <span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />{importingSuppliers ? "匯入中..." : "匯入"}</span>
+          </label>
+          <Button variant="outline" className="gap-2 rounded-xl" disabled={deletingAllSuppliers} onClick={async () => {
+            try {
+              setDeletingAllSuppliers(true);
+              setSupplierNotice("正在清空全部廠商...");
+              await onDeleteAllSuppliers();
+              setSupplierNotice("已清空全部廠商資料");
+            } catch (error) {
+              console.error("delete all suppliers failed", error);
+              setSupplierNotice(error instanceof Error ? `清空失敗：${error.message}` : "清空失敗");
+            } finally {
+              setDeletingAllSuppliers(false);
+            }
+          }}><Trash2 className="h-4 w-4" />{deletingAllSuppliers ? "清空中..." : "清空廠商"}</Button>
+          <Button className="gap-2 rounded-xl" onClick={() => onCreateSupplier()}><Plus className="h-4 w-4" />新增廠商</Button>
+        </div>
         {supplierNotice ? <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">{supplierNotice}</div> : null}
         <div className="space-y-3">
-          {filtered.map((supplier) => {
-            const isOpen = openId === supplier.id;
-            return (
-              <div key={supplier.id} className="rounded-2xl border bg-white">
-                <button type="button" onClick={() => setOpenId(isOpen ? "" : supplier.id)} className="flex w-full items-center justify-between gap-4 p-4 text-left"><div className="space-y-1"><div className="font-medium">{supplier.name}</div><div className="text-xs text-muted-foreground">{supplier.code} ・ {supplier.contact || "未填聯絡人"} ・ {supplier.phone || "未填電話"}</div></div><div className="flex items-center gap-3"><Badge variant={supplier.active ? "default" : "secondary"}>{supplier.active ? "啟用中" : "停用"}</Badge>{isOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}</div></button>
-                {isOpen ? (
-                  <div className="border-t px-4 pb-4 pt-3">
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">廠商編號</div><Input value={supplier.code} onChange={(e) => updateLocalSupplier(supplier.id, { code: e.target.value })} className="mt-2" /></div>
-                      <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">廠商名稱</div><Input value={supplier.name} onChange={(e) => updateLocalSupplier(supplier.id, { name: e.target.value })} className="mt-2" /></div>
-                      <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">聯絡人</div><Input value={supplier.contact} onChange={(e) => updateLocalSupplier(supplier.id, { contact: e.target.value })} className="mt-2" /></div>
-                      <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">電話</div><Input value={supplier.phone} onChange={(e) => updateLocalSupplier(supplier.id, { phone: e.target.value })} className="mt-2" /></div>
-                      <div className="col-span-2 rounded-xl border p-3"><div className="text-xs text-muted-foreground">備註</div><Input value={supplier.note} onChange={(e) => updateLocalSupplier(supplier.id, { note: e.target.value })} className="mt-2" /></div>
-                    </div>
-                    <div className="mt-3 grid grid-cols-3 gap-2"><Button variant="outline" className="gap-2 rounded-xl" onClick={() => updateLocalSupplier(supplier.id, { active: !supplier.active })}><CheckCircle2 className="h-4 w-4" />{supplier.active ? "停用" : "啟用"}</Button><Button variant="outline" className="gap-2 rounded-xl" onClick={() => onSaveSupplier(draftSuppliers.find((item) => item.id === supplier.id) ?? supplier)}><Pencil className="h-4 w-4" />修改完成</Button><Button variant="outline" className="gap-2 rounded-xl" onClick={() => onDeleteSupplier(supplier.id)}><Trash2 className="h-4 w-4" />刪除</Button></div>
-                  </div>
-                ) : null}
+          {filteredSuppliers.map((supplier) => (
+            <div key={supplier.id} className="rounded-2xl border p-4">
+              <div className="grid gap-3 md:grid-cols-6">
+                <div>
+                  <div className="text-xs text-muted-foreground">編號</div>
+                  <Input value={supplier.code} onChange={(e) => setDraftSuppliers((prev) => prev.map((item) => item.id === supplier.id ? { ...item, code: e.target.value } : item))} className="mt-2" />
+                </div>
+                <div className="md:col-span-2">
+                  <div className="text-xs text-muted-foreground">名稱</div>
+                  <Input value={supplier.name} onChange={(e) => setDraftSuppliers((prev) => prev.map((item) => item.id === supplier.id ? { ...item, name: e.target.value } : item))} className="mt-2" />
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">聯絡人</div>
+                  <Input value={supplier.contact} onChange={(e) => setDraftSuppliers((prev) => prev.map((item) => item.id === supplier.id ? { ...item, contact: e.target.value } : item))} className="mt-2" />
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">電話</div>
+                  <Input value={supplier.phone} onChange={(e) => setDraftSuppliers((prev) => prev.map((item) => item.id === supplier.id ? { ...item, phone: e.target.value } : item))} className="mt-2" />
+                </div>
+                <div className="flex items-end gap-2">
+                  <Button variant="outline" className="rounded-xl" onClick={() => onSaveSupplier(supplier)}>儲存</Button>
+                  <Button variant="outline" className="rounded-xl" onClick={async () => {
+                    try {
+                      await onDeleteSupplier(supplier.id);
+                      setSupplierNotice(`已刪除廠商：${supplier.name}`);
+                    } catch (error) {
+                      console.error("delete supplier failed", error);
+                      setSupplierNotice(error instanceof Error ? `刪除失敗：${error.message}` : "刪除失敗");
+                    }
+                  }}>刪除</Button>
+                </div>
               </div>
-            );
-          })}
+              <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+                <div>
+                  <div className="text-xs text-muted-foreground">備註</div>
+                  <Input value={supplier.note} onChange={(e) => setDraftSuppliers((prev) => prev.map((item) => item.id === supplier.id ? { ...item, note: e.target.value } : item))} className="mt-2" />
+                </div>
+                <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <input type="checkbox" checked={supplier.active} onChange={() => setDraftSuppliers((prev) => prev.map((item) => item.id === supplier.id ? { ...item, active: !item.active } : item))} />啟用
+                </label>
+              </div>
+            </div>
+          ))}
         </div>
       </CardContent>
     </Card>
