@@ -44,9 +44,7 @@ import {
   setDoc,
 } from "firebase/firestore";
 import { GoogleAuthProvider, getAuth, onAuthStateChanged, signInWithPopup, signOut, type User } from "firebase/auth";
-
-const app = null as any;
-const db = null as any;
+import { app, db } from "@/lib/firebase";
 
 type HistoryRecord = {
   date: string;
@@ -1808,7 +1806,7 @@ function MobileBottomNav({ active, onChange }: { active: NavKey; onChange: (key:
 }
 
 export default function SupermarketInventoryFrontendPrototype() {
-  const auth = app ? getAuth(app) : null;
+  const auth = getAuth(app);
   const [active, setActive] = useState<NavKey>("inbound");
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -1821,11 +1819,6 @@ export default function SupermarketInventoryFrontendPrototype() {
   const [settings, setSettings] = useState<SystemSettings>(initialSystemSettings);
 
   useEffect(() => {
-    if (!auth) {
-      setAuthLoading(false);
-      return;
-    }
-
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
       setAuthLoading(false);
@@ -1835,7 +1828,7 @@ export default function SupermarketInventoryFrontendPrototype() {
   }, [auth]);
 
   useEffect(() => {
-    if (!currentUser || !db) return;
+    if (!currentUser) return;
 
     const loadAll = async () => {
       try {
@@ -1915,10 +1908,6 @@ export default function SupermarketInventoryFrontendPrototype() {
   const signInWithGoogle = async () => {
     try {
       setAuthError("");
-      if (!auth) {
-        setAuthError("Canvas 預覽無法直接讀取 src/lib/firebase.ts，正式專案請保留原本 Firebase 設定。這裡先只做版面檢查。");
-        return;
-      }
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (error) {
@@ -1929,7 +1918,6 @@ export default function SupermarketInventoryFrontendPrototype() {
 
   const handleSignOut = async () => {
     try {
-      if (!auth) return;
       await signOut(auth);
     } catch (error) {
       console.error("sign out failed", error);
