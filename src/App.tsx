@@ -1994,8 +1994,9 @@ function SupplierManager({
     ];
     const csv = rows
       .map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+      .join("
+");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -2102,6 +2103,7 @@ function SupplierManager({
                   <Button variant="outline" className="rounded-xl" onClick={async () => {
                     try {
                       await onDeleteSupplier(supplier.id);
+                      setDraftSuppliers((prev) => prev.filter((item) => item.id !== supplier.id));
                       setSupplierNotice(`已刪除廠商：${supplier.name}`);
                     } catch (error) {
                       console.error("delete supplier failed", error);
