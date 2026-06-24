@@ -817,17 +817,61 @@ function ProductActionModal({
     }
   };
 
+  const autoTranslateAllEditFields = async () => {
+    if (!editForm?.name.trim()) {
+      setTranslateNotice("請先填寫中文商品名稱");
+      return;
+    }
+
+    try {
+      setTranslatingTarget("vi");
+      setTranslateNotice("");
+      const [viText, idText] = await Promise.all([
+        requestAutoTranslate(editForm.name, "vi"),
+        requestAutoTranslate(editForm.name, "id"),
+      ]);
+      setEditForm((prev) =>
+        prev
+          ? {
+              ...prev,
+              nameVi: viText,
+              nameId: idText,
+              translationStatus: {
+                vi: "auto",
+                id: "auto",
+              },
+            }
+          : prev
+      );
+      setTranslateNotice("已自動翻譯越南文與印尼文");
+    } catch (error) {
+      console.error("auto translate all edit fields failed", error);
+      setTranslateNotice(error instanceof Error ? error.message : "自動翻譯失敗");
+    } finally {
+      setTranslatingTarget(null);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 lg:items-center">
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 lg:items-center">
+      <div className="flex max-h-[86vh] w-full max-w-[420px] flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
         <div className="border-b p-4">
-          <div className="text-lg font-semibold">{action.type === "edit" ? "修改商品" : action.type === "print" ? "列印貨卡" : action.type === "price" ? "變更價格" : "停用商品"}</div>
-          <div className="mt-1 text-sm text-muted-foreground">
-            {action.type === "edit" ? "可直接修改商品主檔資料。" : "此步驟為前端原型操作。"}
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-lg font-semibold">{action.type === "edit" ? "修改商品" : action.type === "print" ? "列印貨卡" : action.type === "price" ? "變更價格" : "停用商品"}</div>
+              <div className="mt-1 text-sm text-muted-foreground">
+                {action.type === "edit" ? "可直接修改商品主檔資料。" : "此步驟為前端原型操作。"}
+              </div>
+            </div>
+            {isEdit ? (
+              <Button type="button" variant="outline" className="h-8 shrink-0 rounded-lg px-3 text-[11px]" onClick={autoTranslateAllEditFields} disabled={translatingTarget !== null || !editForm?.name.trim()}>
+                {translatingTarget ? "翻譯中..." : "翻譯全部"}
+              </Button>
+            ) : null}
           </div>
         </div>
         {isEdit ? (
-          <div className="space-y-3 p-4 text-sm">
+          <div className="flex-1 space-y-3 overflow-y-auto p-4 text-sm">
             <div className="rounded-xl border p-3">
               <div className="text-xs text-muted-foreground">中文商品名稱</div>
               <Input value={editForm.name} onChange={(e) => setEditForm((prev) => prev ? { ...prev, name: e.target.value } : prev)} className="mt-2" />
@@ -1067,6 +1111,37 @@ function ProductMaster({
     }
   };
 
+  const autoTranslateAllCreateFields = async () => {
+    if (!createForm.name.trim()) {
+      setCreateTranslateNotice("請先填寫中文商品名稱");
+      return;
+    }
+
+    try {
+      setCreateTranslatingTarget("vi");
+      setCreateTranslateNotice("");
+      const [viText, idText] = await Promise.all([
+        requestAutoTranslate(createForm.name, "vi"),
+        requestAutoTranslate(createForm.name, "id"),
+      ]);
+      setCreateForm((prev) => ({
+        ...prev,
+        nameVi: viText,
+        nameId: idText,
+        translationStatus: {
+          vi: "auto",
+          id: "auto",
+        },
+      }));
+      setCreateTranslateNotice("已自動翻譯越南文與印尼文");
+    } catch (error) {
+      console.error("auto translate all create fields failed", error);
+      setCreateTranslateNotice(error instanceof Error ? error.message : "自動翻譯失敗");
+    } finally {
+      setCreateTranslatingTarget(null);
+    }
+  };
+
   const handleScanSearch = () => {
     const matched = findProductByQuery(products, scanValue);
     if (!matched) {
@@ -1134,10 +1209,20 @@ function ProductMaster({
           ) : null}
 
           {createOpen ? (
-            <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 lg:items-center">
-              <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
-                <div className="border-b p-4"><div className="text-lg font-semibold">新增商品</div><div className="mt-1 text-sm text-muted-foreground">新增後會直接寫入 Firebase 商品主檔。</div></div>
-                <div className="space-y-3 p-4 text-sm">
+            <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 lg:items-center">
+              <div className="flex max-h-[86vh] w-full max-w-[420px] flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+                <div className="border-b p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-lg font-semibold">新增商品</div>
+                      <div className="mt-1 text-sm text-muted-foreground">新增後會直接寫入 Firebase 商品主檔。</div>
+                    </div>
+                    <Button type="button" variant="outline" className="h-8 shrink-0 rounded-lg px-3 text-[11px]" onClick={autoTranslateAllCreateFields} disabled={createTranslatingTarget !== null || !createForm.name.trim()}>
+                      {createTranslatingTarget ? "翻譯中..." : "翻譯全部"}
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex-1 space-y-3 overflow-y-auto p-4 text-sm">
                   <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">中文商品名稱</div><Input value={createForm.name} onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))} className="mt-2" /></div>
                   <div className="rounded-xl border p-3"><div className="flex items-center justify-between gap-2 text-xs text-muted-foreground"><span>越南文商品名稱</span><Button type="button" variant="outline" className="h-7 rounded-lg px-2 text-[11px]" onClick={() => autoTranslateCreateField("vi")} disabled={createTranslatingTarget !== null}>{createTranslatingTarget === "vi" ? "翻譯中..." : "自動翻譯"}</Button></div><Input value={createForm.nameVi} onChange={(e) => setCreateForm((prev) => ({ ...prev, nameVi: e.target.value, translationStatus: { ...prev.translationStatus, vi: e.target.value.trim() ? "reviewed" : "empty" } }))} className="mt-2" /></div>
                   <div className="rounded-xl border p-3"><div className="flex items-center justify-between gap-2 text-xs text-muted-foreground"><span>印尼文商品名稱</span><Button type="button" variant="outline" className="h-7 rounded-lg px-2 text-[11px]" onClick={() => autoTranslateCreateField("id")} disabled={createTranslatingTarget !== null}>{createTranslatingTarget === "id" ? "翻譯中..." : "自動翻譯"}</Button></div><Input value={createForm.nameId} onChange={(e) => setCreateForm((prev) => ({ ...prev, nameId: e.target.value, translationStatus: { ...prev.translationStatus, id: e.target.value.trim() ? "reviewed" : "empty" } }))} className="mt-2" /></div>
