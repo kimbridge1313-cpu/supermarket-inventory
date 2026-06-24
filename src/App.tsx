@@ -1994,8 +1994,8 @@ function SupplierManager({
     ];
     const csv = rows
       .map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
-      .join("\\n");
-    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+      .join("\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -2359,9 +2359,9 @@ export default function SupermarketInventoryFrontendPrototype() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState("");
-  const [products, setProducts] = useState<Product[]>(initialProducts);
-  const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers);
-  const [batchRecords, setBatchRecords] = useState<BatchRecord[]>(initialBatchRecords);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [batchRecords, setBatchRecords] = useState<BatchRecord[]>([]);
   const [templates, setTemplates] = useState<LabelTemplate[]>(initialLabelTemplates);
   const [printerDevices, setPrinterDevices] = useState<PrinterDevice[]>(initialPrinterDevices);
   const [settings, setSettings] = useState<SystemSettings>(initialSystemSettings);
@@ -2458,9 +2458,9 @@ export default function SupermarketInventoryFrontendPrototype() {
         const remotePrinters = printerSnap.docs.map((snapshot) => ({ id: snapshot.id, ...(snapshot.data() as Omit<PrinterDevice, "id">) } as PrinterDevice));
         const remoteSettingsDoc = settingsSnap.docs[0];
 
-        if (remoteProducts.length > 0) setProducts(remoteProducts);
-        if (remoteSuppliers.length > 0) setSuppliers(remoteSuppliers);
-        if (remoteBatchRecords.length > 0) setBatchRecords(remoteBatchRecords);
+        setProducts(remoteProducts);
+        setSuppliers(remoteSuppliers);
+        setBatchRecords(remoteBatchRecords);
         if (remoteTemplates.length > 0) setTemplates(remoteTemplates);
         if (remotePrinters.length > 0) setPrinterDevices(remotePrinters);
         if (remoteSettingsDoc) setSettings({
