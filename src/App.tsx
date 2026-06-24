@@ -1107,17 +1107,16 @@ function ProductMaster({
   onImportProducts,
   onRemoveDuplicateProducts,
   onDeleteAllProducts,
-}: {DeleteAllProducts,
 }: {
   products: Product[];
   suppliers: Supplier[];
   onSaveEdit: (barcode: string, patch: EditableProductFields) => Promise<void> | void;
   onCreateProduct: (payload: NewProductFields) => Promise<void> | void;
-  onImportProducts: (payload: NewProductFields[]) => PonRemoveDuplicateProducts: () => Promise<void> | void;
+  onImportProducts: (payload: NewProductFields[]) => Promise<void> | void;
+  onRemoveDuplicateProducts: () => Promise<void> | void;
   onDeleteAllProducts: () => Promise<void> | void;
-}) {misconst [queryText, setQueryText] = useState("");
-  const [dedupingProducts, setDedupingProducts] = useState(false);
-  const [deletingAllProducts, setDeletingAllProducts] = useState(false);te("");
+}) {
+  const [queryText, setQueryText] = useState("");
   const [dedupingProducts, setDedupingProducts] = useState(false);
   const [deletingAllProducts, setDeletingAllProducts] = useState(false);
   const [openId, setOpenId] = useState<string>(products[0]?.barcode ?? "");
@@ -1308,7 +1307,9 @@ function ProductMaster({
             <Button className="gap-2 rounded-xl" onClick={() => { setCreateOpen(true); setCreateTranslateNotice(""); }}><Plus className="h-4 w-4" />新增</Button>
             <label className="inline-flex">
               <input type="file" accept=".csv,.htm,.html" className="hidden" onChange={(e) => { importProducts(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} />
-              <span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />{importingProdu<Button variant="outline" className="gap-2 rounded-xl" onClick={exportProducts}><Download className="h-4 w-4" />匯出</Button>
+              <span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />{importingProducts ? "匯入中..." : "匯入 CSV / 單品資料"}</span>
+            </label>
+            <Button variant="outline" className="gap-2 rounded-xl" onClick={exportProducts}><Download className="h-4 w-4" />匯出</Button>
             <Button variant="outline" className="gap-2 rounded-xl" disabled={deletingAllProducts} onClick={async () => {
               try {
                 setDeletingAllProducts(true);
@@ -1322,7 +1323,7 @@ function ProductMaster({
                 setDeletingAllProducts(false);
               }
             }}><Trash2 className="h-4 w-4" />{deletingAllProducts ? "清空中..." : "清空商品"}</Button>
-            <Button variant="outline" className="gap-2 rounded-xl" disabled={dedupingProducts}variant="outline" className="gap-2 rounded-xl" disabled={dedupingProducts} onClick={async () => {
+            <Button variant="outline" className="gap-2 rounded-xl" disabled={dedupingProducts} onClick={async () => {
               try {
                 setDedupingProducts(true);
                 setScanNotice("正在刪除重複商品...");
@@ -1942,26 +1943,27 @@ function RecordQuery({
   );
 }
 
-functionDeleteSupplier,
-  onImportSuppliers,
-  onDeleteAllSuppliers,
-}: {eSupplier,
+function SupplierManager({
+  suppliers,
+  onCreateSupplier,
   onSaveSupplier,
   onDeleteSupplier,
   onImportSuppliers,
+  onDeleteAllSuppliers,
 }: {
   suppliers: Supplier[];
   onCreateSupplier: () => Promise<void> | void;
-  onSaveSupplier: (supplier: Supplier) => Promise<void> | onImportSuppliers: (suppliers: Supplier[]) => Promise<void> | void;
+  onSaveSupplier: (supplier: Supplier) => Promise<void> | void;
+  onDeleteSupplier: (supplierId: string) => Promise<void> | void;
+  onImportSuppliers: (suppliers: Supplier[]) => Promise<void> | void;
   onDeleteAllSuppliers: () => Promise<void> | void;
-}) {  onImportSuppliers: (suppliers: Supplier[]) => Promise<void> | void;
 }) {
   const [queryText, setQueryText] = useState("");
   const [openId, setOpenId] = useState<string>(suppliers[0]?.id ?? "");
-  constconst [supplierNotice, setSupplierNotice] = useState("");
+  const [draftSuppliers, setDraftSuppliers] = useState<Supplier[]>(suppliers);
+  const [supplierNotice, setSupplierNotice] = useState("");
   const [importingSuppliers, setImportingSuppliers] = useState(false);
-  const [deletingAllSuppliers, setDeletingAllSuppliers] = useState(false);");
-  const [importingSuppliers, setImportingSuppliers] = useState(false);
+  const [deletingAllSuppliers, setDeletingAllSuppliers] = useState(false);
 
   useEffect(() => {
     setDraftSuppliers(suppliers);
@@ -2026,7 +2028,7 @@ functionDeleteSupplier,
     <Card className="rounded-2xl shadow-sm">
       <CardHeader><CardTitle>廠商資料</CardTitle><CardDescription>新增 / 修改 / 刪除 / 匯入 / 匯出都已接 Firebase。</CardDescription></CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-wrap gap-2"><Input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="搜尋廠商名稱 / 編號 / 聯絡人 / 電話" className="min-w-[220px] flex-1" /><Button variant="outline" className="gap-2 rounded-xl" onClick={exportSuppliers}><Download className="h-4 w-4" />匯出</Button><label className="inline-flex"><input type="file" accept=".csv" className="hidden" onChange={(e) => { importSuppliers(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} /><span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload c<Button variant="outline" className="gap-2 rounded-xl" disabled={deletingAllSuppliers} onClick={async () => {
+        <div className="flex flex-wrap gap-2"><Input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="搜尋廠商名稱 / 編號 / 聯絡人 / 電話" className="min-w-[220px] flex-1" /><Button variant="outline" className="gap-2 rounded-xl" onClick={exportSuppliers}><Download className="h-4 w-4" />匯出</Button><label className="inline-flex"><input type="file" accept=".csv" className="hidden" onChange={(e) => { importSuppliers(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} /><span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />{importingSuppliers ? "匯入中..." : "匯入"}</span></label><Button variant="outline" className="gap-2 rounded-xl" disabled={deletingAllSuppliers} onClick={async () => {
           try {
             setDeletingAllSuppliers(true);
             setSupplierNotice("正在清空全部廠商...");
@@ -2038,7 +2040,7 @@ functionDeleteSupplier,
           } finally {
             setDeletingAllSuppliers(false);
           }
-        }}><Trash2 className="h-4 w-4" />{deletingAllSuppliers ? "清空中..." : "清空廠商"}</Button><Button className="gap-2 rounded-xl" onClick={() => onCreateSupplier()}><Plus className="h-4 w-4" />新增廠商</Button></div>{() => onCreateSupplier()}><Plus className="h-4 w-4" />新增廠商</Button></div>
+        }}><Trash2 className="h-4 w-4" />{deletingAllSuppliers ? "清空中..." : "清空廠商"}</Button><Button className="gap-2 rounded-xl" onClick={() => onCreateSupplier()}><Plus className="h-4 w-4" />新增廠商</Button></div>
         {supplierNotice ? <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">{supplierNotice}</div> : null}
         <div className="space-y-3">
           {filtered.map((supplier) => {
@@ -2210,12 +2212,14 @@ function PrinterDeviceManager({
 function SettingsWorkspace({
   suppliers,
   templates,
-  printerDevionDeleteSupplier,
-  onImportSuppliers,
-  onDeleteAllSuppliers,
-  onSaveSettings,onSaveSupplier,
+  printerDevices,
+  sampleProduct,
+  settings,
+  onCreateSupplier,
+  onSaveSupplier,
   onDeleteSupplier,
   onImportSuppliers,
+  onDeleteAllSuppliers,
   onSaveSettings,
   onCreateTemplate,
   onSaveTemplate,
@@ -2233,9 +2237,10 @@ function SettingsWorkspace({
   sampleProduct: Product;
   settings: SystemSettings;
   onCreateSupplier: () => Promise<void> | void;
-  onSaveSupplier: (supplier: Supplier) => Promise<void> | onImportSuppliers: (suppliers: Supplier[]) => Promise<void> | void;
+  onSaveSupplier: (supplier: Supplier) => Promise<void> | void;
+  onDeleteSupplier: (supplierId: string) => Promise<void> | void;
+  onImportSuppliers: (suppliers: Supplier[]) => Promise<void> | void;
   onDeleteAllSuppliers: () => Promise<void> | void;
-  onSaveSettings:pliers: (suppliers: Supplier[]) => Promise<void> | void;
   onSaveSettings: (settings: SystemSettings) => Promise<void> | void;
   onCreateTemplate: () => Promise<void> | void;
   onSaveTemplate: (template: LabelTemplate) => Promise<void> | void;
@@ -2250,7 +2255,7 @@ function SettingsWorkspace({
   const [panel, setPanel] = useState<"hub" | "system" | "suppliers" | "label_templates" | "printer_devices">("hub");
 
   if (panel === "system") return <div className="space-y-4 pb-20 lg:pb-0"><Button variant="outline" className="rounded-xl" onClick={() => setPanel("hub")}>返回設定</Button><SystemSettingsPanel settings={settings} onSaveSettings={onSaveSettings} /></div>;
-  if (panel === "suppliers") return <div className="space-y-4 pb-20 lg:pb-0"><Button variant="out<SupplierManager suppliers={suppliers} onCreateSupplier={onCreateSupplier} onSaveSupplier={onSaveSupplier} onDeleteSupplier={onDeleteSupplier} onImportSuppliers={onImportSuppliers} onDeleteAllSuppliers={onDeleteAllSuppliers} />DeleteSupplier={onDeleteSupplier} onImportSuppliers={onImportSuppliers} /></div>;
+  if (panel === "suppliers") return <div className="space-y-4 pb-20 lg:pb-0"><Button variant="outline" className="rounded-xl" onClick={() => setPanel("hub")}>返回設定</Button><SupplierManager suppliers={suppliers} onCreateSupplier={onCreateSupplier} onSaveSupplier={onSaveSupplier} onDeleteSupplier={onDeleteSupplier} onImportSuppliers={onImportSuppliers} onDeleteAllSuppliers={onDeleteAllSuppliers} /></div>;
   if (panel === "label_templates") return <div className="space-y-4 pb-20 lg:pb-0"><Button variant="outline" className="rounded-xl" onClick={() => setPanel("hub")}>返回設定</Button><LabelTemplateManager templates={templates} sampleProduct={sampleProduct} storeName={settings.storeName} onCreateTemplate={onCreateTemplate} onSaveTemplate={onSaveTemplate} onDeleteTemplate={onDeleteTemplate} onSetActiveTemplate={onSetActiveTemplate} /></div>;
   if (panel === "printer_devices") return <div className="space-y-4 pb-20 lg:pb-0"><Button variant="outline" className="rounded-xl" onClick={() => setPanel("hub")}>返回設定</Button><PrinterDeviceManager devices={printerDevices} onCreateDevice={onCreateDevice} onSaveDevice={onSaveDevice} onDeleteDevice={onDeleteDevice} onSetDefaultDevice={onSetDefaultDevice} onTestDevice={onTestDevice} /></div>;
 
@@ -2338,6 +2343,7 @@ export default function SupermarketInventoryFrontendPrototype() {
               id: (data.translationStatus?.id ?? "empty") as TranslationStatus["id"],
             },
             category: String(data.category ?? ""),
+            supplierCode: String(data.supplierCode ?? ""),
             supplier: String(data.supplier ?? ""),
             cost: Number(data.cost ?? 0),
             price: Number(data.price ?? 0),
@@ -2436,7 +2442,11 @@ export default function SupermarketInventoryFrontendPrototype() {
   const saveProductEdit = async (originalBarcode: string, patch: EditableProductFields) => {
     const target = products.find((product) => product.barcode === originalBarcode);
     setProducts((prev) => prev.map((product) => product.barcode === originalBarcode ? { ...product, ...patch } : product));
-    if (!target?.docId) returconst createProduct = async (payload: NewProductFields) => {
+    if (!target?.docId) return;
+    await updateDoc(doc(db, "products", target.docId), patch);
+  };
+
+  const createProduct = async (payload: NewProductFields) => {
     const docRef = await addDoc(collection(db, "products"), { ...payload, history: [] });
     setProducts((prev) => [{ ...payload, history: [], docId: docRef.id }, ...prev]);
   };
@@ -2448,7 +2458,6 @@ export default function SupermarketInventoryFrontendPrototype() {
       }
     }
     setProducts([]);
-  };((prev) => [{ ...payload, history: [], docId: docRef.id }, ...prev]);
   };
 
   const importProducts = async (payload: NewProductFields[]) => {
@@ -2567,7 +2576,10 @@ export default function SupermarketInventoryFrontendPrototype() {
 
   const deleteSupplier = async (supplierId: string) => {
     await deleteDoc(doc(db, "suppliers", supplierId));
-    setSuconst importSuppliers = async (payload: Supplier[]) => {
+    setSuppliers((prev) => prev.filter((item) => item.id !== supplierId));
+  };
+
+  const importSuppliers = async (payload: Supplier[]) => {
     const created: Supplier[] = [];
     for (const supplier of payload) {
       const docRef = await addDoc(collection(db, "suppliers"), { code: supplier.code, name: supplier.name, contact: supplier.contact, phone: supplier.phone, note: supplier.note, active: supplier.active });
@@ -2583,7 +2595,6 @@ export default function SupermarketInventoryFrontendPrototype() {
       }
     }
     setSuppliers([]);
-  };f (created.length > 0) setSuppliers((prev) => [...created, ...prev]);
   };
 
   const saveSystemSettings = async (nextSettings: SystemSettings) => {
@@ -2773,7 +2784,8 @@ export default function SupermarketInventoryFrontendPrototype() {
           </div>
 
           <div className="pb-24 pr-2 lg:pb-4">
-            <motion.div key={active} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: {active === "products" ? <ProductMaster products={products} suppliers={suppliers} onSaveEdit={saveProductEdit} onCreateProduct={createProduct} onImportProducts={importProducts} onRemoveDuplicateProducts={removeDuplicateProducts} onDeleteAllProducts={deleteAllProducts} /> : null}rtProducts} onRemoveDuplicateProducts={removeDuplicateProducts} /> : null}
+            <motion.div key={active} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }} className="space-y-6">
+              {active === "products" ? <ProductMaster products={products} suppliers={suppliers} onSaveEdit={saveProductEdit} onCreateProduct={createProduct} onImportProducts={importProducts} onRemoveDuplicateProducts={removeDuplicateProducts} onDeleteAllProducts={deleteAllProducts} /> : null}
               {active === "inbound" ? <InboundWorkbench products={products} onSaveBatch={saveInboundBatch} /> : null}
               {active === "stock" ? <StockQuery products={products} /> : null}
               {active === "labels" ? (
@@ -2787,7 +2799,7 @@ export default function SupermarketInventoryFrontendPrototype() {
                 />
               ) : null}
               {active === "records" ? <RecordQuery batchRecords={batchRecords} products={products} onUpdateBatchRecord={updateBatchRecord} onDeleteBatchRecord={deleteBatchLine} onAddProductToBatch={addProductToBatch} /> : null}
-              {active === "settings" ? <SettingsWorkspace suppliers={suppliers} templates={templates} printerDevices={printerDevices} sampleProduct={products[0] ?? initialProducts[0]} settings={settings} onCreateSupplier={createonImportSuppliers={importSuppliers} onDeleteAllSuppliers={deleteAllSuppliers} onSaveSettings={saveSystemSettings}r} onImportSuppliers={importSuppliers} onSaveSettings={saveSystemSettings} onCreateTemplate={createTemplate} onSaveTemplate={saveTemplate} onDeleteTemplate={deleteTemplate} onSetActiveTemplate={setActiveTemplate} onCreateDevice={createPrinterDevice} onSaveDevice={savePrinterDevice} onDeleteDevice={deletePrinterDevice} onSetDefaultDevice={setDefaultPrinterDevice} onTestDevice={testPrinterDevice} /> : null}
+              {active === "settings" ? <SettingsWorkspace suppliers={suppliers} templates={templates} printerDevices={printerDevices} sampleProduct={products[0] ?? initialProducts[0]} settings={settings} onCreateSupplier={createSupplier} onSaveSupplier={saveSupplier} onDeleteSupplier={deleteSupplier} onImportSuppliers={importSuppliers} onDeleteAllSuppliers={deleteAllSuppliers} onSaveSettings={saveSystemSettings} onCreateTemplate={createTemplate} onSaveTemplate={saveTemplate} onDeleteTemplate={deleteTemplate} onSetActiveTemplate={setActiveTemplate} onCreateDevice={createPrinterDevice} onSaveDevice={savePrinterDevice} onDeleteDevice={deletePrinterDevice} onSetDefaultDevice={setDefaultPrinterDevice} onTestDevice={testPrinterDevice} /> : null}
             </motion.div>
           </div>
         </main>
