@@ -67,6 +67,7 @@ type Product = {
   nameId: string;
   translationStatus: TranslationStatus;
   category: string;
+  supplierCode: string;
   supplier: string;
   cost: number;
   price: number;
@@ -186,6 +187,7 @@ type NewProductFields = {
   nameId: string;
   translationStatus: TranslationStatus;
   category: string;
+  supplierCode: string;
   supplier: string;
   cost: number;
   price: number;
@@ -201,6 +203,7 @@ type EditableProductFields = Pick<
   | "translationStatus"
   | "barcode"
   | "category"
+  | "supplierCode"
   | "supplier"
   | "cost"
   | "price"
@@ -217,6 +220,7 @@ const initialProducts: Product[] = [
     nameId: "Coca-Cola 600ml",
     translationStatus: { vi: "reviewed", id: "reviewed" },
     category: "飲料",
+    supplierCode: "V001",
     supplier: "大發商行",
     cost: 21,
     price: 35,
@@ -235,6 +239,7 @@ const initialProducts: Product[] = [
     nameId: "Roti tawar susu Uni-President",
     translationStatus: { vi: "auto", id: "auto" },
     category: "麵包",
+    supplierCode: "V002",
     supplier: "晨光食品",
     cost: 28,
     price: 45,
@@ -252,6 +257,7 @@ const initialProducts: Product[] = [
     nameId: "Tahu telur I-Mei",
     translationStatus: { vi: "auto", id: "auto" },
     category: "冷藏",
+    supplierCode: "V003",
     supplier: "信成冷鏈",
     cost: 19,
     price: 29,
@@ -525,6 +531,18 @@ function parseLegacyNumber(value: unknown) {
   return Number.isFinite(next) ? next : 0;
 }
 
+function resolveSupplierByCode(list: Supplier[], supplierCode: string, fallbackName = "") {
+  const normalizedCode = supplierCode.trim();
+  if (!normalizedCode) {
+    return { supplierCode: "", supplier: fallbackName.trim() };
+  }
+  const matched = list.find((item) => item.code.trim() === normalizedCode);
+  if (matched) {
+    return { supplierCode: matched.code, supplier: matched.name };
+  }
+  return { supplierCode: normalizedCode, supplier: fallbackName.trim() || normalizedCode };
+}
+
 async function parseLegacyHtmlProductFile(file: File): Promise<NewProductFields[]> {
   const buffer = await file.arrayBuffer();
   let html = "";
@@ -558,7 +576,8 @@ async function parseLegacyHtmlProductFile(file: File): Promise<NewProductFields[
     .map((cells) => {
       const barcode = normalizeLegacyText(getCell(cells, "GSNOLINK")) || normalizeLegacyText(getCell(cells, "GSNO"));
       const name = normalizeLegacyText(getCell(cells, "GSNAME"));
-      const supplier = normalizeLegacyText(getCell(cells, "SPNAME")) || normalizeLegacyText(getCell(cells, "SPNO"));
+      const supplierCode = normalizeLegacyText(getCell(cells, "SPNO1")) || normalizeLegacyText(getCell(cells, "SPNO"));
+      const supplier = normalizeLegacyText(getCell(cells, "SPNAME")) || supplierCode;
       const category = normalizeLegacyText(getCell(cells, "CSNAME")) || normalizeLegacyText(getCell(cells, "GSTYPE"));
       const cost = parseLegacyNumber(getCell(cells, "PRCHLPRICE")) || parseLegacyNumber(getCell(cells, "LPRICE"));
       const price = parseLegacyNumber(getCell(cells, "SALEPRICE0")) || parseLegacyNumber(getCell(cells, "SALEPRICE1"));
@@ -571,6 +590,7 @@ async function parseLegacyHtmlProductFile(file: File): Promise<NewProductFields[
         nameId: "",
         translationStatus: { vi: "empty", id: "empty" },
         category,
+        supplierCode,
         supplier,
         cost,
         price,
@@ -845,6 +865,7 @@ function ProductActionModal({
       translationStatus: action.product.translationStatus,
       barcode: action.product.barcode,
       category: action.product.category,
+      supplierCode: action.product.supplierCode,
       supplier: action.product.supplier,
       cost: action.product.cost,
       price: action.product.price,
@@ -963,9 +984,12 @@ function ProductActionModal({
             </div>
             <div className="rounded-xl border p-3">
               <div className="text-xs text-muted-foreground">廠商</div>
-              <select value={editForm.supplier} onChange={(e) => setEditForm((prev) => prev ? { ...prev, supplier: e.target.value } : prev)} className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+              <select value={editForm.supplierCode} onChange={(e) => {
+                const matchedSupplier = suppliers.find((supplier) => supplier.code === e.target.value);
+                setEditForm((prev) => prev ? { ...prev, supplierCode: e.target.value, supplier: matchedSupplier?.name ?? prev.supplier } : prev);
+              }} className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
                 {suppliers.filter((supplier) => supplier.active).map((supplier) => (
-                  <option key={supplier.id} value={supplier.name}>{supplier.name}</option>
+                  <option key={supplier.id} value={supplier.code}>{supplier.code}｜{supplier.name}</option>
                 ))}
               </select>
             </div>
@@ -1082,16 +1106,20 @@ function ProductMaster({
   onCreateProduct,
   onImportProducts,
   onRemoveDuplicateProducts,
+  onDeleteAllProducts,
+}: {DeleteAllProducts,
 }: {
   products: Product[];
   suppliers: Supplier[];
   onSaveEdit: (barcode: string, patch: EditableProductFields) => Promise<void> | void;
   onCreateProduct: (payload: NewProductFields) => Promise<void> | void;
-  onImportProducts: (payload: NewProductFields[]) => Promise<void> | void;
-  onRemoveDuplicateProducts: () => Promise<void> | void;
-}) {
-  const [queryText, setQueryText] = useState("");
+  onImportProducts: (payload: NewProductFields[]) => PonRemoveDuplicateProducts: () => Promise<void> | void;
+  onDeleteAllProducts: () => Promise<void> | void;
+}) {misconst [queryText, setQueryText] = useState("");
   const [dedupingProducts, setDedupingProducts] = useState(false);
+  const [deletingAllProducts, setDeletingAllProducts] = useState(false);te("");
+  const [dedupingProducts, setDedupingProducts] = useState(false);
+  const [deletingAllProducts, setDeletingAllProducts] = useState(false);
   const [openId, setOpenId] = useState<string>(products[0]?.barcode ?? "");
   const [productAction, setProductAction] = useState<ProductAction>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -1108,6 +1136,7 @@ function ProductMaster({
     nameId: "",
     translationStatus: { vi: "empty", id: "empty" },
     category: "",
+    supplierCode: suppliers.find((supplier) => supplier.active)?.code ?? "",
     supplier: suppliers.find((supplier) => supplier.active)?.name ?? "",
     cost: 0,
     price: 0,
@@ -1130,8 +1159,8 @@ function ProductMaster({
 
   const exportProducts = () => {
     const csv = makeCsv([
-      ["barcode", "name", "nameVi", "nameId", "translationStatusVi", "translationStatusId", "category", "supplier", "cost", "price", "untaxed", "stock"],
-      ...products.map((product) => [product.barcode, product.name, product.nameVi, product.nameId, product.translationStatus.vi, product.translationStatus.id, product.category, product.supplier, product.cost, product.price, product.untaxed, product.stock]),
+      ["barcode", "name", "nameVi", "nameId", "translationStatusVi", "translationStatusId", "category", "supplierCode", "supplier", "cost", "price", "untaxed", "stock"],
+      ...products.map((product) => [product.barcode, product.name, product.nameVi, product.nameId, product.translationStatus.vi, product.translationStatus.id, product.category, product.supplierCode, product.supplier, product.cost, product.price, product.untaxed, product.stock]),
     ]);
     downloadCsv("products-export.csv", csv);
   };
@@ -1150,19 +1179,23 @@ function ProductMaster({
       } else {
         const rows = await parseCsvFile(file);
         payload = rows
-          .map((parts) => ({
-            barcode: parts[0] || "",
-            name: parts[1] || "",
-            nameVi: parts[2] || "",
-            nameId: parts[3] || "",
-            translationStatus: { vi: (parts[4] as TranslationStatus["vi"]) || "empty", id: (parts[5] as TranslationStatus["id"]) || "empty" },
-            category: parts[6] || "",
-            supplier: parts[7] || suppliers.find((supplier) => supplier.active)?.name || "",
-            cost: Number(parts[8] || 0),
-            price: Number(parts[9] || 0),
-            untaxed: Number(parts[10] || 0),
-            stock: Number(parts[11] || 0),
-          }))
+          .map((parts) => {
+            const resolvedSupplier = resolveSupplierByCode(suppliers, parts[7] || "", parts[8] || suppliers.find((supplier) => supplier.active)?.name || "");
+            return {
+              barcode: parts[0] || "",
+              name: parts[1] || "",
+              nameVi: parts[2] || "",
+              nameId: parts[3] || "",
+              translationStatus: { vi: (parts[4] as TranslationStatus["vi"]) || "empty", id: (parts[5] as TranslationStatus["id"]) || "empty" },
+              category: parts[6] || "",
+              supplierCode: resolvedSupplier.supplierCode,
+              supplier: resolvedSupplier.supplier,
+              cost: Number(parts[9] || 0),
+              price: Number(parts[10] || 0),
+              untaxed: Number(parts[11] || 0),
+              stock: Number(parts[12] || 0),
+            };
+          })
           .filter((item) => item.barcode && item.name);
       }
 
@@ -1171,7 +1204,14 @@ function ProductMaster({
         return;
       }
 
-      await onImportProducts(payload);
+      await onImportProducts(payload.map((item) => {
+        const resolvedSupplier = resolveSupplierByCode(suppliers, item.supplierCode, item.supplier);
+        return {
+          ...item,
+          supplierCode: resolvedSupplier.supplierCode,
+          supplier: resolvedSupplier.supplier,
+        };
+      }));
       setScanNotice(`已匯入 ${payload.length} 筆商品`);
     } catch (error) {
       console.error("import products failed", error);
@@ -1268,10 +1308,21 @@ function ProductMaster({
             <Button className="gap-2 rounded-xl" onClick={() => { setCreateOpen(true); setCreateTranslateNotice(""); }}><Plus className="h-4 w-4" />新增</Button>
             <label className="inline-flex">
               <input type="file" accept=".csv,.htm,.html" className="hidden" onChange={(e) => { importProducts(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} />
-              <span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />{importingProducts ? "匯入中..." : "匯入 CSV / 單品資料"}</span>
-            </label>
-            <Button variant="outline" className="gap-2 rounded-xl" onClick={exportProducts}><Download className="h-4 w-4" />匯出</Button>
-            <Button variant="outline" className="gap-2 rounded-xl" disabled={dedupingProducts} onClick={async () => {
+              <span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />{importingProdu<Button variant="outline" className="gap-2 rounded-xl" onClick={exportProducts}><Download className="h-4 w-4" />匯出</Button>
+            <Button variant="outline" className="gap-2 rounded-xl" disabled={deletingAllProducts} onClick={async () => {
+              try {
+                setDeletingAllProducts(true);
+                setScanNotice("正在清空全部商品...");
+                await onDeleteAllProducts();
+                setScanNotice("已清空全部商品資料");
+              } catch (error) {
+                console.error("delete all products failed", error);
+                setScanNotice(error instanceof Error ? `清空失敗：${error.message}` : "清空失敗");
+              } finally {
+                setDeletingAllProducts(false);
+              }
+            }}><Trash2 className="h-4 w-4" />{deletingAllProducts ? "清空中..." : "清空商品"}</Button>
+            <Button variant="outline" className="gap-2 rounded-xl" disabled={dedupingProducts}variant="outline" className="gap-2 rounded-xl" disabled={dedupingProducts} onClick={async () => {
               try {
                 setDedupingProducts(true);
                 setScanNotice("正在刪除重複商品...");
@@ -1338,7 +1389,10 @@ function ProductMaster({
                   <div className="rounded-xl border p-3"><div className="flex items-center justify-between gap-2 text-xs text-muted-foreground"><span>印尼文商品名稱</span><Button type="button" variant="outline" className="h-7 rounded-lg px-2 text-[11px]" onClick={() => autoTranslateCreateField("id")} disabled={createTranslatingTarget !== null}>{createTranslatingTarget === "id" ? "翻譯中..." : "自動翻譯"}</Button></div><Input value={createForm.nameId} onChange={(e) => setCreateForm((prev) => ({ ...prev, nameId: e.target.value, translationStatus: { ...prev.translationStatus, id: e.target.value.trim() ? "reviewed" : "empty" } }))} className="mt-2" /></div>
                   <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">商品條碼</div><Input value={createForm.barcode} onChange={(e) => setCreateForm((prev) => ({ ...prev, barcode: e.target.value }))} className="mt-2" /></div>
                   <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">分類</div><Input value={createForm.category} onChange={(e) => setCreateForm((prev) => ({ ...prev, category: e.target.value }))} className="mt-2" /></div>
-                  <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">廠商</div><select value={createForm.supplier} onChange={(e) => setCreateForm((prev) => ({ ...prev, supplier: e.target.value }))} className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">{suppliers.filter((supplier) => supplier.active).map((supplier) => <option key={supplier.id} value={supplier.name}>{supplier.name}</option>)}</select></div>
+                  <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">廠商</div><select value={createForm.supplierCode} onChange={(e) => {
+                    const matchedSupplier = suppliers.find((supplier) => supplier.code === e.target.value);
+                    setCreateForm((prev) => ({ ...prev, supplierCode: e.target.value, supplier: matchedSupplier?.name ?? prev.supplier }));
+                  }} className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm">{suppliers.filter((supplier) => supplier.active).map((supplier) => <option key={supplier.id} value={supplier.code}>{supplier.code}｜{supplier.name}</option>)}</select></div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">主檔進貨價</div><Input type="number" value={createForm.cost} onChange={(e) => setCreateForm((prev) => ({ ...prev, cost: Number(e.target.value) }))} className="mt-2" /></div>
                     <div className="rounded-xl border p-3"><div className="text-xs text-muted-foreground">販售價</div><Input type="number" value={createForm.price} onChange={(e) => setCreateForm((prev) => ({ ...prev, price: Number(e.target.value) }))} className="mt-2" /></div>
@@ -1356,6 +1410,7 @@ function ProductMaster({
                         nameId: "",
                         translationStatus: { vi: "empty", id: "empty" },
                         category: "",
+                        supplierCode: suppliers.find((supplier) => supplier.active)?.code ?? "",
                         supplier: suppliers.find((supplier) => supplier.active)?.name ?? "",
                         cost: 0,
                         price: 0,
@@ -1887,23 +1942,25 @@ function RecordQuery({
   );
 }
 
-function SupplierManager({
-  suppliers,
-  onCreateSupplier,
+functionDeleteSupplier,
+  onImportSuppliers,
+  onDeleteAllSuppliers,
+}: {eSupplier,
   onSaveSupplier,
   onDeleteSupplier,
   onImportSuppliers,
 }: {
   suppliers: Supplier[];
   onCreateSupplier: () => Promise<void> | void;
-  onSaveSupplier: (supplier: Supplier) => Promise<void> | void;
-  onDeleteSupplier: (supplierId: string) => Promise<void> | void;
-  onImportSuppliers: (suppliers: Supplier[]) => Promise<void> | void;
+  onSaveSupplier: (supplier: Supplier) => Promise<void> | onImportSuppliers: (suppliers: Supplier[]) => Promise<void> | void;
+  onDeleteAllSuppliers: () => Promise<void> | void;
+}) {  onImportSuppliers: (suppliers: Supplier[]) => Promise<void> | void;
 }) {
   const [queryText, setQueryText] = useState("");
   const [openId, setOpenId] = useState<string>(suppliers[0]?.id ?? "");
-  const [draftSuppliers, setDraftSuppliers] = useState<Supplier[]>(suppliers);
-  const [supplierNotice, setSupplierNotice] = useState("");
+  constconst [supplierNotice, setSupplierNotice] = useState("");
+  const [importingSuppliers, setImportingSuppliers] = useState(false);
+  const [deletingAllSuppliers, setDeletingAllSuppliers] = useState(false);");
   const [importingSuppliers, setImportingSuppliers] = useState(false);
 
   useEffect(() => {
@@ -1969,7 +2026,19 @@ function SupplierManager({
     <Card className="rounded-2xl shadow-sm">
       <CardHeader><CardTitle>廠商資料</CardTitle><CardDescription>新增 / 修改 / 刪除 / 匯入 / 匯出都已接 Firebase。</CardDescription></CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-wrap gap-2"><Input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="搜尋廠商名稱 / 編號 / 聯絡人 / 電話" className="min-w-[220px] flex-1" /><Button variant="outline" className="gap-2 rounded-xl" onClick={exportSuppliers}><Download className="h-4 w-4" />匯出</Button><label className="inline-flex"><input type="file" accept=".csv" className="hidden" onChange={(e) => { importSuppliers(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} /><span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />{importingSuppliers ? "匯入中..." : "匯入"}</span></label><Button className="gap-2 rounded-xl" onClick={() => onCreateSupplier()}><Plus className="h-4 w-4" />新增廠商</Button></div>
+        <div className="flex flex-wrap gap-2"><Input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="搜尋廠商名稱 / 編號 / 聯絡人 / 電話" className="min-w-[220px] flex-1" /><Button variant="outline" className="gap-2 rounded-xl" onClick={exportSuppliers}><Download className="h-4 w-4" />匯出</Button><label className="inline-flex"><input type="file" accept=".csv" className="hidden" onChange={(e) => { importSuppliers(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} /><span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload c<Button variant="outline" className="gap-2 rounded-xl" disabled={deletingAllSuppliers} onClick={async () => {
+          try {
+            setDeletingAllSuppliers(true);
+            setSupplierNotice("正在清空全部廠商...");
+            await onDeleteAllSuppliers();
+            setSupplierNotice("已清空全部廠商資料");
+          } catch (error) {
+            console.error("delete all suppliers failed", error);
+            setSupplierNotice(error instanceof Error ? `清空失敗：${error.message}` : "清空失敗");
+          } finally {
+            setDeletingAllSuppliers(false);
+          }
+        }}><Trash2 className="h-4 w-4" />{deletingAllSuppliers ? "清空中..." : "清空廠商"}</Button><Button className="gap-2 rounded-xl" onClick={() => onCreateSupplier()}><Plus className="h-4 w-4" />新增廠商</Button></div>{() => onCreateSupplier()}><Plus className="h-4 w-4" />新增廠商</Button></div>
         {supplierNotice ? <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">{supplierNotice}</div> : null}
         <div className="space-y-3">
           {filtered.map((supplier) => {
@@ -2141,11 +2210,10 @@ function PrinterDeviceManager({
 function SettingsWorkspace({
   suppliers,
   templates,
-  printerDevices,
-  sampleProduct,
-  settings,
-  onCreateSupplier,
-  onSaveSupplier,
+  printerDevionDeleteSupplier,
+  onImportSuppliers,
+  onDeleteAllSuppliers,
+  onSaveSettings,onSaveSupplier,
   onDeleteSupplier,
   onImportSuppliers,
   onSaveSettings,
@@ -2165,9 +2233,9 @@ function SettingsWorkspace({
   sampleProduct: Product;
   settings: SystemSettings;
   onCreateSupplier: () => Promise<void> | void;
-  onSaveSupplier: (supplier: Supplier) => Promise<void> | void;
-  onDeleteSupplier: (supplierId: string) => Promise<void> | void;
-  onImportSuppliers: (suppliers: Supplier[]) => Promise<void> | void;
+  onSaveSupplier: (supplier: Supplier) => Promise<void> | onImportSuppliers: (suppliers: Supplier[]) => Promise<void> | void;
+  onDeleteAllSuppliers: () => Promise<void> | void;
+  onSaveSettings:pliers: (suppliers: Supplier[]) => Promise<void> | void;
   onSaveSettings: (settings: SystemSettings) => Promise<void> | void;
   onCreateTemplate: () => Promise<void> | void;
   onSaveTemplate: (template: LabelTemplate) => Promise<void> | void;
@@ -2182,7 +2250,7 @@ function SettingsWorkspace({
   const [panel, setPanel] = useState<"hub" | "system" | "suppliers" | "label_templates" | "printer_devices">("hub");
 
   if (panel === "system") return <div className="space-y-4 pb-20 lg:pb-0"><Button variant="outline" className="rounded-xl" onClick={() => setPanel("hub")}>返回設定</Button><SystemSettingsPanel settings={settings} onSaveSettings={onSaveSettings} /></div>;
-  if (panel === "suppliers") return <div className="space-y-4 pb-20 lg:pb-0"><Button variant="outline" className="rounded-xl" onClick={() => setPanel("hub")}>返回設定</Button><SupplierManager suppliers={suppliers} onCreateSupplier={onCreateSupplier} onSaveSupplier={onSaveSupplier} onDeleteSupplier={onDeleteSupplier} onImportSuppliers={onImportSuppliers} /></div>;
+  if (panel === "suppliers") return <div className="space-y-4 pb-20 lg:pb-0"><Button variant="out<SupplierManager suppliers={suppliers} onCreateSupplier={onCreateSupplier} onSaveSupplier={onSaveSupplier} onDeleteSupplier={onDeleteSupplier} onImportSuppliers={onImportSuppliers} onDeleteAllSuppliers={onDeleteAllSuppliers} />DeleteSupplier={onDeleteSupplier} onImportSuppliers={onImportSuppliers} /></div>;
   if (panel === "label_templates") return <div className="space-y-4 pb-20 lg:pb-0"><Button variant="outline" className="rounded-xl" onClick={() => setPanel("hub")}>返回設定</Button><LabelTemplateManager templates={templates} sampleProduct={sampleProduct} storeName={settings.storeName} onCreateTemplate={onCreateTemplate} onSaveTemplate={onSaveTemplate} onDeleteTemplate={onDeleteTemplate} onSetActiveTemplate={onSetActiveTemplate} /></div>;
   if (panel === "printer_devices") return <div className="space-y-4 pb-20 lg:pb-0"><Button variant="outline" className="rounded-xl" onClick={() => setPanel("hub")}>返回設定</Button><PrinterDeviceManager devices={printerDevices} onCreateDevice={onCreateDevice} onSaveDevice={onSaveDevice} onDeleteDevice={onDeleteDevice} onSetDefaultDevice={onSetDefaultDevice} onTestDevice={onTestDevice} /></div>;
 
@@ -2368,13 +2436,19 @@ export default function SupermarketInventoryFrontendPrototype() {
   const saveProductEdit = async (originalBarcode: string, patch: EditableProductFields) => {
     const target = products.find((product) => product.barcode === originalBarcode);
     setProducts((prev) => prev.map((product) => product.barcode === originalBarcode ? { ...product, ...patch } : product));
-    if (!target?.docId) return;
-    await updateDoc(doc(db, "products", target.docId), patch);
-  };
-
-  const createProduct = async (payload: NewProductFields) => {
+    if (!target?.docId) returconst createProduct = async (payload: NewProductFields) => {
     const docRef = await addDoc(collection(db, "products"), { ...payload, history: [] });
     setProducts((prev) => [{ ...payload, history: [], docId: docRef.id }, ...prev]);
+  };
+
+  const deleteAllProducts = async () => {
+    for (const product of products) {
+      if (product.docId) {
+        await deleteDoc(doc(db, "products", product.docId));
+      }
+    }
+    setProducts([]);
+  };((prev) => [{ ...payload, history: [], docId: docRef.id }, ...prev]);
   };
 
   const importProducts = async (payload: NewProductFields[]) => {
@@ -2493,16 +2567,23 @@ export default function SupermarketInventoryFrontendPrototype() {
 
   const deleteSupplier = async (supplierId: string) => {
     await deleteDoc(doc(db, "suppliers", supplierId));
-    setSuppliers((prev) => prev.filter((item) => item.id !== supplierId));
-  };
-
-  const importSuppliers = async (payload: Supplier[]) => {
+    setSuconst importSuppliers = async (payload: Supplier[]) => {
     const created: Supplier[] = [];
     for (const supplier of payload) {
       const docRef = await addDoc(collection(db, "suppliers"), { code: supplier.code, name: supplier.name, contact: supplier.contact, phone: supplier.phone, note: supplier.note, active: supplier.active });
       created.push({ ...supplier, id: docRef.id });
     }
     if (created.length > 0) setSuppliers((prev) => [...created, ...prev]);
+  };
+
+  const deleteAllSuppliers = async () => {
+    for (const supplier of suppliers) {
+      if (supplier.id) {
+        await deleteDoc(doc(db, "suppliers", supplier.id));
+      }
+    }
+    setSuppliers([]);
+  };f (created.length > 0) setSuppliers((prev) => [...created, ...prev]);
   };
 
   const saveSystemSettings = async (nextSettings: SystemSettings) => {
@@ -2692,8 +2773,7 @@ export default function SupermarketInventoryFrontendPrototype() {
           </div>
 
           <div className="pb-24 pr-2 lg:pb-4">
-            <motion.div key={active} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }} className="space-y-6">
-              {active === "products" ? <ProductMaster products={products} suppliers={suppliers} onSaveEdit={saveProductEdit} onCreateProduct={createProduct} onImportProducts={importProducts} onRemoveDuplicateProducts={removeDuplicateProducts} /> : null}
+            <motion.div key={active} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: {active === "products" ? <ProductMaster products={products} suppliers={suppliers} onSaveEdit={saveProductEdit} onCreateProduct={createProduct} onImportProducts={importProducts} onRemoveDuplicateProducts={removeDuplicateProducts} onDeleteAllProducts={deleteAllProducts} /> : null}rtProducts} onRemoveDuplicateProducts={removeDuplicateProducts} /> : null}
               {active === "inbound" ? <InboundWorkbench products={products} onSaveBatch={saveInboundBatch} /> : null}
               {active === "stock" ? <StockQuery products={products} /> : null}
               {active === "labels" ? (
@@ -2707,7 +2787,7 @@ export default function SupermarketInventoryFrontendPrototype() {
                 />
               ) : null}
               {active === "records" ? <RecordQuery batchRecords={batchRecords} products={products} onUpdateBatchRecord={updateBatchRecord} onDeleteBatchRecord={deleteBatchLine} onAddProductToBatch={addProductToBatch} /> : null}
-              {active === "settings" ? <SettingsWorkspace suppliers={suppliers} templates={templates} printerDevices={printerDevices} sampleProduct={products[0] ?? initialProducts[0]} settings={settings} onCreateSupplier={createSupplier} onSaveSupplier={saveSupplier} onDeleteSupplier={deleteSupplier} onImportSuppliers={importSuppliers} onSaveSettings={saveSystemSettings} onCreateTemplate={createTemplate} onSaveTemplate={saveTemplate} onDeleteTemplate={deleteTemplate} onSetActiveTemplate={setActiveTemplate} onCreateDevice={createPrinterDevice} onSaveDevice={savePrinterDevice} onDeleteDevice={deletePrinterDevice} onSetDefaultDevice={setDefaultPrinterDevice} onTestDevice={testPrinterDevice} /> : null}
+              {active === "settings" ? <SettingsWorkspace suppliers={suppliers} templates={templates} printerDevices={printerDevices} sampleProduct={products[0] ?? initialProducts[0]} settings={settings} onCreateSupplier={createonImportSuppliers={importSuppliers} onDeleteAllSuppliers={deleteAllSuppliers} onSaveSettings={saveSystemSettings}r} onImportSuppliers={importSuppliers} onSaveSettings={saveSystemSettings} onCreateTemplate={createTemplate} onSaveTemplate={saveTemplate} onDeleteTemplate={deleteTemplate} onSetActiveTemplate={setActiveTemplate} onCreateDevice={createPrinterDevice} onSaveDevice={savePrinterDevice} onDeleteDevice={deletePrinterDevice} onSetDefaultDevice={setDefaultPrinterDevice} onTestDevice={testPrinterDevice} /> : null}
             </motion.div>
           </div>
         </main>
