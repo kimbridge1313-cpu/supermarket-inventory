@@ -1095,6 +1095,7 @@ function ProductMaster({
   const [scanOpen, setScanOpen] = useState(false);
   const [scanValue, setScanValue] = useState("");
   const [scanNotice, setScanNotice] = useState("");
+  const [importingProducts, setImportingProducts] = useState(false);
   const [createTranslateNotice, setCreateTranslateNotice] = useState("");
   const [createTranslatingTarget, setCreateTranslatingTarget] = useState<TranslationTarget | null>(null);
   const [createForm, setCreateForm] = useState<NewProductFields>({
@@ -1135,34 +1136,45 @@ function ProductMaster({
   const importProducts = async (file: File | null) => {
     if (!file) return;
 
-    let payload: NewProductFields[] = [];
+    try {
+      setImportingProducts(true);
+      setScanNotice(`正在匯入：${file.name}`);
 
-    if (file.name.toLowerCase().endsWith(".htm") || file.name.toLowerCase().endsWith(".html")) {
-      payload = await parseLegacyHtmlProductFile(file);
-    } else {
-      const rows = await parseCsvFile(file);
-      payload = rows
-        .map((parts) => ({
-          barcode: parts[0] || "",
-          name: parts[1] || "",
-          nameVi: parts[2] || "",
-          nameId: parts[3] || "",
-          translationStatus: { vi: (parts[4] as TranslationStatus["vi"]) || "empty", id: (parts[5] as TranslationStatus["id"]) || "empty" },
-          category: parts[6] || "",
-          supplier: parts[7] || suppliers.find((supplier) => supplier.active)?.name || "",
-          cost: Number(parts[8] || 0),
-          price: Number(parts[9] || 0),
-          untaxed: Number(parts[10] || 0),
-          stock: Number(parts[11] || 0),
-        }))
-        .filter((item) => item.barcode && item.name);
-    }
+      let payload: NewProductFields[] = [];
 
-    if (payload.length > 0) {
+      if (file.name.toLowerCase().endsWith(".htm") || file.name.toLowerCase().endsWith(".html")) {
+        payload = await parseLegacyHtmlProductFile(file);
+      } else {
+        const rows = await parseCsvFile(file);
+        payload = rows
+          .map((parts) => ({
+            barcode: parts[0] || "",
+            name: parts[1] || "",
+            nameVi: parts[2] || "",
+            nameId: parts[3] || "",
+            translationStatus: { vi: (parts[4] as TranslationStatus["vi"]) || "empty", id: (parts[5] as TranslationStatus["id"]) || "empty" },
+            category: parts[6] || "",
+            supplier: parts[7] || suppliers.find((supplier) => supplier.active)?.name || "",
+            cost: Number(parts[8] || 0),
+            price: Number(parts[9] || 0),
+            untaxed: Number(parts[10] || 0),
+            stock: Number(parts[11] || 0),
+          }))
+          .filter((item) => item.barcode && item.name);
+      }
+
+      if (payload.length === 0) {
+        setScanNotice("匯入檔案中沒有可用商品資料");
+        return;
+      }
+
       await onImportProducts(payload);
       setScanNotice(`已匯入 ${payload.length} 筆商品`);
-    } else {
-      setScanNotice("匯入檔案中沒有可用商品資料");
+    } catch (error) {
+      console.error("import products failed", error);
+      setScanNotice(error instanceof Error ? `匯入失敗：${error.message}` : "匯入失敗");
+    } finally {
+      setImportingProducts(false);
     }
   };
 
@@ -1253,7 +1265,7 @@ function ProductMaster({
             <Button className="gap-2 rounded-xl" onClick={() => { setCreateOpen(true); setCreateTranslateNotice(""); }}><Plus className="h-4 w-4" />新增</Button>
             <label className="inline-flex">
               <input type="file" accept=".csv,.htm,.html" className="hidden" onChange={(e) => { importProducts(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} />
-              <span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />匯入 CSV / 單品資料</span>
+              <span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />{importingProducts ? "匯入中..." : "匯入 CSV / 單品資料"}</span>
             </label>
             <Button variant="outline" className="gap-2 rounded-xl" onClick={exportProducts}><Download className="h-4 w-4" />匯出</Button>
           </div>
@@ -1875,6 +1887,8 @@ function SupplierManager({
   const [queryText, setQueryText] = useState("");
   const [openId, setOpenId] = useState<string>(suppliers[0]?.id ?? "");
   const [draftSuppliers, setDraftSuppliers] = useState<Supplier[]>(suppliers);
+  const [supplierNotice, setSupplierNotice] = useState("");
+  const [importingSuppliers, setImportingSuppliers] = useState(false);
 
   useEffect(() => {
     setDraftSuppliers(suppliers);
@@ -1896,17 +1910,41 @@ function SupplierManager({
 
   const importSuppliers = async (file: File | null) => {
     if (!file) return;
-    const rows = await parseCsvFile(file);
-    const payload = rows.map((parts, index) => ({
-      id: `import-${Date.now()}-${index}`,
-      code: parts[0] || `V${String(index + 1).padStart(3, "0")}`,
-      name: parts[1] || "未命名廠商",
-      contact: parts[2] || "",
-      phone: parts[3] || "",
-      note: parts[4] || "",
-      active: (parts[5] || "TRUE").toUpperCase() !== "FALSE",
-    }));
-    await onImportSuppliers(payload);
+
+    try {
+      setImportingSuppliers(true);
+      setSupplierNotice(`正在匯入：${file.name}`);
+
+      const rows = await parseCsvFile(file);
+      const payload = rows
+        .map((parts, index) => {
+          const activeRaw = (parts[5] || "TRUE").trim().toLowerCase();
+          const active = !["false", "0", "no", "n", "否", "停用"].includes(activeRaw);
+          return {
+            id: `import-${Date.now()}-${index}`,
+            code: parts[0] || `V${String(index + 1).padStart(3, "0")}`,
+            name: parts[1] || "",
+            contact: parts[2] || "",
+            phone: parts[3] || "",
+            note: parts[4] || "",
+            active,
+          };
+        })
+        .filter((item) => item.name.trim());
+
+      if (payload.length === 0) {
+        setSupplierNotice("匯入檔案中沒有可用廠商資料");
+        return;
+      }
+
+      await onImportSuppliers(payload);
+      setSupplierNotice(`已匯入 ${payload.length} 筆廠商資料`);
+    } catch (error) {
+      console.error("import suppliers failed", error);
+      setSupplierNotice(error instanceof Error ? `匯入失敗：${error.message}` : "匯入失敗");
+    } finally {
+      setImportingSuppliers(false);
+    }
   };
 
   const updateLocalSupplier = (supplierId: string, patch: Partial<Supplier>) => setDraftSuppliers((prev) => prev.map((item) => item.id === supplierId ? { ...item, ...patch } : item));
@@ -1915,7 +1953,8 @@ function SupplierManager({
     <Card className="rounded-2xl shadow-sm">
       <CardHeader><CardTitle>廠商資料</CardTitle><CardDescription>新增 / 修改 / 刪除 / 匯入 / 匯出都已接 Firebase。</CardDescription></CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-wrap gap-2"><Input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="搜尋廠商名稱 / 編號 / 聯絡人 / 電話" className="min-w-[220px] flex-1" /><Button variant="outline" className="gap-2 rounded-xl" onClick={exportSuppliers}><Download className="h-4 w-4" />匯出</Button><label className="inline-flex"><input type="file" accept=".csv" className="hidden" onChange={(e) => { importSuppliers(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} /><span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />匯入</span></label><Button className="gap-2 rounded-xl" onClick={() => onCreateSupplier()}><Plus className="h-4 w-4" />新增廠商</Button></div>
+        <div className="flex flex-wrap gap-2"><Input value={queryText} onChange={(e) => setQueryText(e.target.value)} placeholder="搜尋廠商名稱 / 編號 / 聯絡人 / 電話" className="min-w-[220px] flex-1" /><Button variant="outline" className="gap-2 rounded-xl" onClick={exportSuppliers}><Download className="h-4 w-4" />匯出</Button><label className="inline-flex"><input type="file" accept=".csv" className="hidden" onChange={(e) => { importSuppliers(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }} /><span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />{importingSuppliers ? "匯入中..." : "匯入"}</span></label><Button className="gap-2 rounded-xl" onClick={() => onCreateSupplier()}><Plus className="h-4 w-4" />新增廠商</Button></div>
+        {supplierNotice ? <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">{supplierNotice}</div> : null}
         <div className="space-y-3">
           {filtered.map((supplier) => {
             const isOpen = openId === supplier.id;
