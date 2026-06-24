@@ -1081,14 +1081,17 @@ function ProductMaster({
   onSaveEdit,
   onCreateProduct,
   onImportProducts,
+  onRemoveDuplicateProducts,
 }: {
   products: Product[];
   suppliers: Supplier[];
   onSaveEdit: (barcode: string, patch: EditableProductFields) => Promise<void> | void;
   onCreateProduct: (payload: NewProductFields) => Promise<void> | void;
   onImportProducts: (payload: NewProductFields[]) => Promise<void> | void;
+  onRemoveDuplicateProducts: () => Promise<void> | void;
 }) {
   const [queryText, setQueryText] = useState("");
+  const [dedupingProducts, setDedupingProducts] = useState(false);
   const [openId, setOpenId] = useState<string>(products[0]?.barcode ?? "");
   const [productAction, setProductAction] = useState<ProductAction>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -1268,6 +1271,19 @@ function ProductMaster({
               <span className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 text-sm font-medium shadow-sm cursor-pointer"><Upload className="h-4 w-4" />{importingProducts ? "匯入中..." : "匯入 CSV / 單品資料"}</span>
             </label>
             <Button variant="outline" className="gap-2 rounded-xl" onClick={exportProducts}><Download className="h-4 w-4" />匯出</Button>
+            <Button variant="outline" className="gap-2 rounded-xl" disabled={dedupingProducts} onClick={async () => {
+              try {
+                setDedupingProducts(true);
+                setScanNotice("正在刪除重複商品...");
+                await onRemoveDuplicateProducts();
+                setScanNotice("已刪除重複商品（依條碼保留一筆）");
+              } catch (error) {
+                console.error("remove duplicate products failed", error);
+                setScanNotice(error instanceof Error ? `刪除失敗：${error.message}` : "刪除失敗");
+              } finally {
+                setDedupingProducts(false);
+              }
+            }}><Trash2 className="h-4 w-4" />{dedupingProducts ? "處理中..." : "刪除重複商品"}</Button>
           </div>
 
           {scanNotice ? <div className="rounded-xl border px-3 py-2 text-sm text-muted-foreground">{scanNotice}</div> : null}
@@ -2370,6 +2386,40 @@ export default function SupermarketInventoryFrontendPrototype() {
     if (created.length > 0) setProducts((prev) => [...created, ...prev]);
   };
 
+  const removeDuplicateProducts = async () => {
+    const grouped = new Map<string, Product[]>();
+    for (const product of products) {
+      const key = product.barcode.trim();
+      if (!key) continue;
+      const list = grouped.get(key) ?? [];
+      list.push(product);
+      grouped.set(key, list);
+    }
+
+    const toDelete: Product[] = [];
+
+    for (const [, list] of grouped) {
+      if (list.length <= 1) continue;
+      const sorted = [...list].sort((a, b) => {
+        const aScore = (a.history?.length ?? 0) + (a.nameVi ? 1 : 0) + (a.nameId ? 1 : 0);
+        const bScore = (b.history?.length ?? 0) + (b.nameVi ? 1 : 0) + (b.nameId ? 1 : 0);
+        return bScore - aScore;
+      });
+      toDelete.push(...sorted.slice(1));
+    }
+
+    for (const product of toDelete) {
+      if (product.docId) {
+        await deleteDoc(doc(db, "products", product.docId));
+      }
+    }
+
+    if (toDelete.length > 0) {
+      const deleteIds = new Set(toDelete.map((item) => item.docId).filter(Boolean));
+      setProducts((prev) => prev.filter((item) => !item.docId || !deleteIds.has(item.docId)));
+    }
+  };
+
   const saveInboundBatch = async (items: FlowItem[]) => {
     if (items.length === 0) return;
     const date = new Date().toISOString().slice(0, 10);
@@ -2643,7 +2693,7 @@ export default function SupermarketInventoryFrontendPrototype() {
 
           <div className="pb-24 pr-2 lg:pb-4">
             <motion.div key={active} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }} className="space-y-6">
-              {active === "products" ? <ProductMaster products={products} suppliers={suppliers} onSaveEdit={saveProductEdit} onCreateProduct={createProduct} onImportProducts={importProducts} /> : null}
+              {active === "products" ? <ProductMaster products={products} suppliers={suppliers} onSaveEdit={saveProductEdit} onCreateProduct={createProduct} onImportProducts={importProducts} onRemoveDuplicateProducts={removeDuplicateProducts} /> : null}
               {active === "inbound" ? <InboundWorkbench products={products} onSaveBatch={saveInboundBatch} /> : null}
               {active === "stock" ? <StockQuery products={products} /> : null}
               {active === "labels" ? (
