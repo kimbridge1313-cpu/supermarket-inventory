@@ -28,9 +28,14 @@ window.addEventListener('DOMContentLoaded', () => {
     scanModal.classList.add('open');
 
     const hint = scanModal.querySelector('.muted');
-    if (hint) hint.textContent = '請讓商品條碼水平、完整進入畫面中間；距離約 15–30 公分，光線要足、不要反光。';
+    if (hint) hint.textContent = '辨識中：請讓商品條碼水平、完整進入畫面中間；系統會連續確認 3 次後才採用。';
 
     let detected = false;
+    const candidates = new Map();
+    const REQUIRED_HITS = 3;
+    const MIN_LENGTH = 6;
+    const normalizeCode = (value) => String(value || '').replace(/[^0-9A-Z]/gi, '').trim();
+    const isLikelyBarcode = (value) => value.length >= MIN_LENGTH && value.length <= 32;
     const stopCamera = () => {
       try { window.Quagga?.offDetected?.(); } catch (_) {}
       try { window.Quagga?.stop?.(); } catch (_) {}
@@ -65,18 +70,18 @@ window.addEventListener('DOMContentLoaded', () => {
               height: { ideal: 720 }
             },
             area: {
-              top: '25%',
-              right: '5%',
-              left: '5%',
-              bottom: '25%'
+              top: '28%',
+              right: '8%',
+              left: '8%',
+              bottom: '28%'
             }
           },
           locator: {
-            patchSize: 'large',
+            patchSize: 'medium',
             halfSample: false
           },
-          numOfWorkers: navigator.hardwareConcurrency ? Math.min(4, navigator.hardwareConcurrency) : 2,
-          frequency: 12,
+          numOfWorkers: 1,
+          frequency: 8,
           decoder: {
             readers: [
               'ean_reader',
@@ -94,10 +99,17 @@ window.addEventListener('DOMContentLoaded', () => {
       });
 
       window.Quagga.onDetected((result) => {
-        const code = result?.codeResult?.code;
-        if (!code || detected) return;
-        detected = true;
-        finish(String(code).trim());
+        const rawCode = result?.codeResult?.code;
+        const code = normalizeCode(rawCode);
+        if (!code || detected || !isLikelyBarcode(code)) return;
+        const count = (candidates.get(code) || 0) + 1;
+        candidates.set(code, count);
+        if (hint) hint.textContent = `辨識中：${code}（${count}/${REQUIRED_HITS}）請保持條碼穩定`;
+        if (count >= REQUIRED_HITS) {
+          detected = true;
+          if (navigator.vibrate) navigator.vibrate(80);
+          finish(code);
+        }
       });
       window.Quagga.start();
     } catch (error) {
