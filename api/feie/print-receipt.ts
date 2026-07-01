@@ -16,34 +16,17 @@ type ErrorPayload = {
   message: string;
 };
 
-function estimatePrintedLines(content: string) {
-  const text = content
-    .replace(/<CUT>/g, "")
-    .replace(/<BC128_[ABC]>[^<]*<\/BC128_[ABC]>/g, "BARCODE")
-    .replace(/<[^>]+>/g, "")
-    .replace(/\s+/g, "")
-    .trim();
-
-  const explicitBreaks = (content.match(/<BR>/g) || []).length;
-  const weightedChars = [...text].reduce((total, char) => total + (char.charCodeAt(0) > 255 ? 1 : 0.5), 0);
-  return explicitBreaks + Math.ceil(weightedChars / 12);
-}
-
-function dynamicFeedLines(content: string) {
+function feedLines() {
   const forced = Number(process.env.FEIE_FEED_LINES_BEFORE_CUT || "");
-  if (Number.isFinite(forced) && forced > 0) return Math.max(0, Math.min(8, forced));
-
-  const estimatedLines = estimatePrintedLines(content);
-  if (estimatedLines <= 6) return 1;
-  if (estimatedLines <= 10) return 2;
-  return 3;
+  if (Number.isFinite(forced) && forced >= 0) return Math.max(0, Math.min(8, forced));
+  return 0;
 }
 
 function normalizePrintContent(rawContent: unknown) {
   const contentWithoutCut = String(rawContent ?? "")
     .replaceAll(CUT_TAG, "")
     .replace(/(<BR>\s*)+$/g, "");
-  const feed = "<BR>".repeat(dynamicFeedLines(contentWithoutCut));
+  const feed = "<BR>".repeat(feedLines());
   return ENABLE_EXPLICIT_CUT ? `${contentWithoutCut}${feed}${CUT_TAG}` : `${contentWithoutCut}${feed}`;
 }
 
@@ -89,7 +72,11 @@ export default async function handler(
     const result = await response.json();
 
     if (result?.ret === 0) {
-      return res.status(200).json({ ok: true, orderId: result.data, message: ENABLE_EXPLICIT_CUT ? "Print job submitted with explicit cut" : "Print job submitted without explicit cut" });
+      return res.status(200).json({
+        ok: true,
+        orderId: result.data,
+        message: ENABLE_EXPLICIT_CUT ? "Print job submitted with explicit cut" : "Print job submitted without explicit cut",
+      });
     }
 
     return res.status(400).json({ ok: false, message: result?.msg ?? "Feie API error" });
