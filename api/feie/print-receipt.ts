@@ -3,7 +3,6 @@ import crypto from "node:crypto";
 
 const FEIE_URL = process.env.FEIE_API_URL ?? "https://api.jp.feieyun.com/Api/Open/";
 const CUT_TAG = "<CUT>";
-const DEFAULT_FEED_LINES = Number(process.env.FEIE_FEED_LINES_BEFORE_CUT ?? 4);
 
 type SuccessPayload = {
   ok: true;
@@ -16,10 +15,38 @@ type ErrorPayload = {
   message: string;
 };
 
+function estimatePrintedLines(content: string) {
+  const text = content
+    .replace(/<CUT>/g, "")
+    .replace(/<BC128_[ABC]>[^<]*<\/BC128_[ABC]>/g, "BARCODE")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+
+  const explicitBreaks = (content.match(/<BR>/g) || []).length;
+  const weightedChars = [...text].reduce((total, char) => {
+    return total + (char.charCodeAt(0) > 255 ? 1 : 0.5);
+  }, 0);
+
+  return explicitBreaks + Math.ceil(weightedChars / 12);
+}
+
+function dynamicFeedLines(content: string) {
+  const forced = Number(process.env.FEIE_FEED_LINES_BEFORE_CUT || "");
+  if (Number.isFinite(forced) && forced > 0) {
+    return Math.max(1, Math.min(8, forced));
+  }
+
+  const estimatedLines = estimatePrintedLines(content);
+
+  if (estimatedLines <= 6) return 2;
+  if (estimatedLines <= 10) return 3;
+  return 4;
+}
+
 function normalizePrintContent(rawContent: unknown) {
   const content = String(rawContent ?? "");
-  const feedLines = Math.max(2, Math.min(8, Number.isFinite(DEFAULT_FEED_LINES) ? DEFAULT_FEED_LINES : 4));
-  const feed = "<BR>".repeat(feedLines);
+  const feed = "<BR>".repeat(dynamicFeedLines(content));
 
   if (content.includes(CUT_TAG)) {
     return content.replaceAll(CUT_TAG, `${feed}${CUT_TAG}`);
