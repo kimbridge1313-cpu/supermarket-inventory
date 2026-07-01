@@ -8,6 +8,10 @@ window.addEventListener('DOMContentLoaded', () => {
   const style = document.createElement('style');
   style.textContent = `
     #panel-products{grid-template-columns:1fr!important}
+    #panel-products table td.row{display:table-cell!important;white-space:nowrap;vertical-align:middle}
+    #panel-products table td.row button{margin-right:6px;margin-bottom:0;padding:8px 10px;display:inline-flex;align-items:center;justify-content:center}
+    #panel-products table td.row button:last-child{margin-right:0}
+    #panel-products table th:last-child,#panel-products table td:last-child{width:132px;text-align:left}
     #product-form-modal{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;display:none;align-items:flex-start;justify-content:center;padding:18px;overflow:auto}
     #product-form-modal.open{display:flex}
     #product-form-modal .card{width:min(760px,100%);max-height:calc(100vh - 36px);overflow:auto}
