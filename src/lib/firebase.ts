@@ -2,13 +2,13 @@ import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCWHo5rAwLZPbD1k2jqJXPtB8G6jCILGXI",
-  authDomain: "supermarket-inventory-9d1cd.firebaseapp.com",
-  projectId: "supermarket-inventory-9d1cd",
-  storageBucket: "supermarket-inventory-9d1cd.firebasestorage.app",
-  messagingSenderId: "796755725790",
-  appId: "1:796755725790:web:5bf1bcf7ffc3c16a33214f",
-  measurementId: "G-QECC031DYP",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 export const app = initializeApp(firebaseConfig);
