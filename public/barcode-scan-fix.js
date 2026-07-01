@@ -9,6 +9,17 @@ window.addEventListener('DOMContentLoaded', () => {
     document.head.appendChild(script);
   });
 
+  const ensureScanControls = (scanModal) => {
+    let controls = document.getElementById('barcode-confirm-controls');
+    if (controls) return controls;
+    controls = document.createElement('div');
+    controls.id = 'barcode-confirm-controls';
+    controls.style.cssText = 'display:none;margin-top:10px;padding:10px;border-radius:12px;background:#f9fafb;border:1px solid #e5e7eb';
+    controls.innerHTML = '<div style="font-size:12px;color:#667085;margin-bottom:4px">候選條碼</div><div id="barcode-candidate-text" style="font-size:22px;font-weight:800;letter-spacing:.04em;margin-bottom:10px"></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" id="use-barcode-btn" class="primary">使用此條碼</button><button type="button" id="reset-barcode-btn" class="secondary">重新掃描</button></div>';
+    scanModal.querySelector('.scan-box')?.appendChild(controls);
+    return controls;
+  };
+
   document.addEventListener('click', async (event) => {
     const btn = event.target?.closest?.('#scan-product-barcode-btn');
     if (!btn) return;
@@ -28,10 +39,16 @@ window.addEventListener('DOMContentLoaded', () => {
     scanModal.classList.add('open');
 
     const hint = scanModal.querySelector('.muted');
+    const controls = ensureScanControls(scanModal);
+    const candidateText = $('barcode-candidate-text');
+    const useBtn = $('use-barcode-btn');
+    const resetBtn = $('reset-barcode-btn');
+    controls.style.display = 'none';
     if (hint) hint.textContent = '準備掃描：請先把條碼水平放進畫面中央，1.5 秒後開始辨識。';
 
-    let detected = false;
+    let closed = false;
     let accepting = false;
+    let lockedCandidate = '';
     const candidates = new Map();
     const REQUIRED_HITS = 3;
     const MIN_LENGTH = 6;
@@ -39,23 +56,41 @@ window.addEventListener('DOMContentLoaded', () => {
     const normalizeCode = (value) => String(value || '').replace(/[^0-9A-Z]/gi, '').trim();
     const isLikelyBarcode = (value) => value.length >= MIN_LENGTH && value.length <= 32;
     const stopCamera = () => {
-      detected = true;
+      closed = true;
       try { window.Quagga?.offDetected?.(); } catch (_) {}
       try { window.Quagga?.stop?.(); } catch (_) {}
       scanModal.classList.remove('open');
       reader.innerHTML = '';
+      controls.style.display = 'none';
     };
-    const finish = (code) => {
+    const useCode = (code) => {
       stopCamera();
       if (code) {
         searchInput.value = code;
         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
       }
     };
+    const showCandidate = (code) => {
+      lockedCandidate = code;
+      accepting = false;
+      if (candidateText) candidateText.textContent = code;
+      controls.style.display = 'block';
+      if (hint) hint.textContent = '已抓到候選條碼，請核對數字；正確再按「使用此條碼」。';
+      if (navigator.vibrate) navigator.vibrate(80);
+    };
+    const resetScan = () => {
+      lockedCandidate = '';
+      candidates.clear();
+      controls.style.display = 'none';
+      accepting = true;
+      if (hint) hint.textContent = '重新辨識：請保持條碼水平且完整，不要快速晃過。';
+    };
 
     const closeBtn = $('close-scan-btn');
-    if (closeBtn) closeBtn.onclick = () => finish('');
-    scanModal.onclick = (e) => { if (e.target === scanModal) finish(''); };
+    if (closeBtn) closeBtn.onclick = () => stopCamera();
+    if (useBtn) useBtn.onclick = () => useCode(lockedCandidate);
+    if (resetBtn) resetBtn.onclick = () => resetScan();
+    scanModal.onclick = (e) => { if (e.target === scanModal) stopCamera(); };
 
     try {
       await loadScript('https://unpkg.com/@ericblade/quagga2/dist/quagga.min.js');
@@ -102,23 +137,17 @@ window.addEventListener('DOMContentLoaded', () => {
       });
 
       window.Quagga.onDetected((result) => {
-        if (!accepting || detected) return;
-        const rawCode = result?.codeResult?.code;
-        const code = normalizeCode(rawCode);
+        if (!accepting || closed || lockedCandidate) return;
+        const code = normalizeCode(result?.codeResult?.code);
         if (!code || !isLikelyBarcode(code)) return;
         const count = (candidates.get(code) || 0) + 1;
         candidates.set(code, count);
         if (hint) hint.textContent = `確認中：${code}（${count}/${REQUIRED_HITS}）請保持條碼穩定`;
-        if (count >= REQUIRED_HITS) {
-          detected = true;
-          if (hint) hint.textContent = `已確認：${code}`;
-          if (navigator.vibrate) navigator.vibrate(80);
-          setTimeout(() => finish(code), 250);
-        }
+        if (count >= REQUIRED_HITS) showCandidate(code);
       });
       window.Quagga.start();
       setTimeout(() => {
-        if (detected) return;
+        if (closed) return;
         accepting = true;
         candidates.clear();
         if (hint) hint.textContent = '開始辨識：請保持條碼水平且完整，不要快速晃過。';
