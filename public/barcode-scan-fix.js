@@ -8,6 +8,73 @@ window.addEventListener('DOMContentLoaded', () => {
     script.onerror = reject;
     document.head.appendChild(script);
   });
+  const isMobile = () => /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.innerWidth <= 720;
+  const normalizeCode = (value) => String(value || '').replace(/[^0-9A-Z]/gi, '').trim();
+
+  const applySearch = (searchInput, code) => {
+    const finalCode = normalizeCode(code);
+    if (!finalCode) return;
+    searchInput.value = finalCode;
+    searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+
+  const scanImageFile = async (file) => {
+    await loadScript('https://unpkg.com/@ericblade/quagga2/dist/quagga.min.js');
+    if (!window.Quagga) throw new Error('Quagga unavailable');
+    const imageUrl = URL.createObjectURL(file);
+    try {
+      const result = await new Promise((resolve, reject) => {
+        window.Quagga.decodeSingle({
+          src: imageUrl,
+          numOfWorkers: 0,
+          inputStream: { size: 1280 },
+          locator: { patchSize: 'large', halfSample: false },
+          decoder: {
+            readers: [
+              'ean_reader',
+              'ean_8_reader',
+              'upc_reader',
+              'upc_e_reader',
+              'code_128_reader',
+              'code_39_reader',
+              'i2of5_reader'
+            ],
+            multiple: false
+          },
+          locate: true
+        }, (res) => res?.codeResult?.code ? resolve(res.codeResult.code) : reject(new Error('barcode not found')));
+      });
+      return normalizeCode(result);
+    } finally {
+      URL.revokeObjectURL(imageUrl);
+    }
+  };
+
+  const startMobilePhotoScan = async (searchInput) => {
+    let input = document.getElementById('mobile-barcode-photo-input');
+    if (!input) {
+      input = document.createElement('input');
+      input.id = 'mobile-barcode-photo-input';
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.setAttribute('capture', 'environment');
+      input.style.display = 'none';
+      document.body.appendChild(input);
+    }
+    input.value = '';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const code = await scanImageFile(file);
+        if (code) applySearch(searchInput, code);
+      } catch (error) {
+        const code = prompt('照片中沒有辨識到條碼。請重新拍清楚，或手動輸入條碼。');
+        if (code) applySearch(searchInput, code);
+      }
+    };
+    input.click();
+  };
 
   const ensureScanControls = (scanModal) => {
     let controls = document.getElementById('barcode-confirm-controls');
@@ -28,10 +95,17 @@ window.addEventListener('DOMContentLoaded', () => {
     event.stopImmediatePropagation();
 
     const searchInput = $('search-input');
+    if (!searchInput) return;
+
+    if (isMobile()) {
+      await startMobilePhotoScan(searchInput);
+      return;
+    }
+
     const scanModal = $('barcode-scan-modal');
     const reader = $('html5-qrcode-reader');
     const video = $('barcode-scan-video');
-    if (!searchInput || !scanModal || !reader) return;
+    if (!scanModal || !reader) return;
 
     if (video) video.style.display = 'none';
     reader.style.display = 'block';
@@ -53,7 +127,6 @@ window.addEventListener('DOMContentLoaded', () => {
     const REQUIRED_HITS = 3;
     const MIN_LENGTH = 6;
     const WARMUP_MS = 1500;
-    const normalizeCode = (value) => String(value || '').replace(/[^0-9A-Z]/gi, '').trim();
     const isLikelyBarcode = (value) => value.length >= MIN_LENGTH && value.length <= 32;
     const stopCamera = () => {
       closed = true;
@@ -65,10 +138,7 @@ window.addEventListener('DOMContentLoaded', () => {
     };
     const useCode = (code) => {
       stopCamera();
-      if (code) {
-        searchInput.value = code;
-        searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-      }
+      if (code) applySearch(searchInput, code);
     };
     const showCandidate = (code) => {
       lockedCandidate = code;
@@ -107,29 +177,13 @@ window.addEventListener('DOMContentLoaded', () => {
               width: { ideal: 1280 },
               height: { ideal: 720 }
             },
-            area: {
-              top: '30%',
-              right: '10%',
-              left: '10%',
-              bottom: '30%'
-            }
+            area: { top: '30%', right: '10%', left: '10%', bottom: '30%' }
           },
-          locator: {
-            patchSize: 'medium',
-            halfSample: false
-          },
+          locator: { patchSize: 'medium', halfSample: false },
           numOfWorkers: 1,
           frequency: 6,
           decoder: {
-            readers: [
-              'ean_reader',
-              'ean_8_reader',
-              'upc_reader',
-              'upc_e_reader',
-              'code_128_reader',
-              'code_39_reader',
-              'i2of5_reader'
-            ],
+            readers: ['ean_reader','ean_8_reader','upc_reader','upc_e_reader','code_128_reader','code_39_reader','i2of5_reader'],
             multiple: false
           },
           locate: true
@@ -155,10 +209,7 @@ window.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
       stopCamera();
       const code = prompt('目前相機掃碼仍無法辨識，請手動輸入條碼，或使用藍牙 / USB 掃碼器。');
-      if (code) {
-        searchInput.value = code.trim();
-        searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-      }
+      if (code) applySearch(searchInput, code);
     }
   }, true);
 });
