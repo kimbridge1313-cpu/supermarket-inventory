@@ -1,19 +1,19 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import crypto from "node:crypto";
 
-const OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const DRIVE_API = "https://www.googleapis.com/drive/v3";
-const allowedExtensions = [".htm", ".html", ".csv"];
+const ALLOWED_EXTENSIONS = [".htm", ".html"];
 
-type FirestoreValue =
+type FsValue =
   | { stringValue: string }
   | { integerValue: string }
   | { doubleValue: number }
   | { booleanValue: boolean }
   | { nullValue: null }
-  | { mapValue: { fields: Record<string, FirestoreValue> } };
+  | { mapValue: { fields: Record<string, FsValue> } };
 
-type NormalizedProduct = {
+type ProductRow = {
   barcode: string;
   name: string;
   category: string;
@@ -26,47 +26,45 @@ type NormalizedProduct = {
 };
 
 const b64url = (input: string | Buffer) =>
-  Buffer.from(input)
-    .toString("base64")
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
+  Buffer.from(input).toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 
-const cleanSigningKey = (value = "") => value.replace(/\\n/g, "\n");
+const signingKey = () => (process.env.DRIVE_SIGNING_KEY || "").replace(/\\n/g, "\n");
+
+function getProjectId() {
+  const id = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
+  if (!id) throw new Error("Missing Firebase project id environment variable");
+  return id;
+}
+
+function firestoreBase() {
+  return `https://firestore.googleapis.com/v1/projects/${getProjectId()}/databases/(default)/documents`;
+}
 
 async function getAccessToken() {
   const email = process.env.DRIVE_CLIENT_EMAIL;
-  const signingKey = cleanSigningKey(process.env.DRIVE_SIGNING_KEY);
-
-  if (!email || !signingKey) {
-    throw new Error("Missing Drive service account environment variables");
-  }
+  const key = signingKey();
+  if (!email || !key) throw new Error("Missing Drive service account environment variables");
 
   const now = Math.floor(Date.now() / 1000);
   const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const payload = b64url(
     JSON.stringify({
       iss: email,
-      scope:
-        "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/datastore",
-      aud: OAUTH_TOKEN_URL,
+      scope: "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/datastore",
+      aud: TOKEN_URL,
       exp: now + 3600,
       iat: now,
     })
   );
   const unsigned = `${header}.${payload}`;
-  const signature = crypto.sign("RSA-SHA256", Buffer.from(unsigned), signingKey);
+  const signature = crypto.sign("RSA-SHA256", Buffer.from(unsigned), key);
   const assertion = `${unsigned}.${b64url(signature)}`;
 
-  const response = await fetch(OAUTH_TOKEN_URL, {
+  const response = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion,
-    }),
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }),
   });
-
   const data = await response.json();
   if (!response.ok || !data.access_token) {
     throw new Error(data.error_description || data.error || "Unable to get access token");
@@ -74,35 +72,23 @@ async function getAccessToken() {
   return data.access_token as string;
 }
 
-function projectId() {
-  const id = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
-  if (!id) throw new Error("Missing Firebase project id environment variable");
-  return id;
-}
-
-function firestoreBase() {
-  return `https://firestore.googleapis.com/v1/projects/${projectId()}/databases/(default)/documents`;
-}
-
-async function latestDriveFile(token: string, folderId: string) {
+async function driveLatestFile(token: string, folderId: string) {
   const params = new URLSearchParams({
     q: `'${folderId}' in parents and trashed=false`,
     fields: "files(id,name,mimeType,modifiedTime,size)",
     orderBy: "modifiedTime desc",
     pageSize: "20",
   });
-  const response = await fetch(`${DRIVE_API}/files?${params}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const response = await fetch(`${DRIVE_API}/files?${params}`, { headers: { Authorization: `Bearer ${token}` } });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error?.message || "Unable to list Drive files");
   return (data.files || []).find((file: any) => {
     const name = String(file.name || "").toLowerCase();
-    return allowedExtensions.some((ext) => name.endsWith(ext));
+    return ALLOWED_EXTENSIONS.some((ext) => name.endsWith(ext));
   });
 }
 
-async function downloadDriveFile(token: string, fileId: string) {
+async function downloadText(token: string, fileId: string) {
   const response = await fetch(`${DRIVE_API}/files/${fileId}?alt=media`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -113,7 +99,7 @@ async function downloadDriveFile(token: string, fileId: string) {
   return big5.includes("GSNO") || big5.includes("GSNAME") ? big5 : utf8;
 }
 
-const stripTags = (html: string) =>
+const strip = (html: string) =>
   html
     .replace(/<br\s*\/?\s*>/gi, " ")
     .replace(/<[^>]*>/g, "")
@@ -124,64 +110,52 @@ const stripTags = (html: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-const num = (value: string) => {
+const toNumber = (value: string) => {
   const parsed = Number(String(value || "").replace(/,/g, "").trim());
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-function parseHtmlProducts(html: string): NormalizedProduct[] {
+function parsePosHtml(html: string): ProductRow[] {
   const rows = [...html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map((row) =>
-    [...row[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => stripTags(cell[1]))
+    [...row[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => strip(cell[1]))
   );
-  const headerIndex = rows.findIndex(
-    (row) => row.includes("GSNO") && row.some((cell) => cell.includes("GSNAME"))
-  );
+  const headerIndex = rows.findIndex((row) => row.includes("GSNO") && row.some((cell) => cell.includes("GSNAME")));
   if (headerIndex < 0) throw new Error("Invalid POS product file: missing header row");
 
   const headers = rows[headerIndex];
-  const indexOf = (name: string) => headers.findIndex((header) => header === name);
+  const col = (name: string) => headers.findIndex((header) => header === name);
   const get = (row: string[], name: string) => {
-    const index = indexOf(name);
+    const index = col(name);
     return index >= 0 ? row[index] || "" : "";
   };
 
   return rows
     .slice(headerIndex + 1)
-    .map((row) => {
-      const barcode = get(row, "GSNOLINK") || get(row, "GSNO");
-      const name = get(row, "GSNAME");
-      return {
-        barcode,
-        name,
-        category: get(row, "CSNAME") || get(row, "GSTYPE"),
-        supplierCode: get(row, "SPNO1") || get(row, "SPNO"),
-        supplier: get(row, "SPNAME") || get(row, "SPNO1") || get(row, "SPNO"),
-        cost: num(get(row, "PRCHLPRICE") || get(row, "LPRICE")),
-        price: num(get(row, "SALEPRICE0") || get(row, "SALEPRICE1")),
-        untaxed: num(get(row, "TAXPRICE")),
-        spec: get(row, "GSSPEC") || get(row, "SPEC") || "",
-      };
-    })
+    .map((row) => ({
+      barcode: get(row, "GSNOLINK") || get(row, "GSNO"),
+      name: get(row, "GSNAME"),
+      category: get(row, "CSNAME") || get(row, "GSTYPE"),
+      supplierCode: get(row, "SPNO1") || get(row, "SPNO"),
+      supplier: get(row, "SPNAME") || get(row, "SPNO1") || get(row, "SPNO"),
+      cost: toNumber(get(row, "PRCHLPRICE") || get(row, "LPRICE")),
+      price: toNumber(get(row, "SALEPRICE0") || get(row, "SALEPRICE1")),
+      untaxed: toNumber(get(row, "TAXPRICE")),
+      spec: get(row, "GSSPEC") || get(row, "SPEC") || "",
+    }))
     .filter((product) => product.barcode && product.name);
 }
 
-function valueToFs(value: any): FirestoreValue {
+function fsValue(value: any): FsValue {
   if (value === null || value === undefined) return { nullValue: null };
   if (typeof value === "boolean") return { booleanValue: value };
-  if (typeof value === "number") {
-    return Number.isInteger(value) ? { integerValue: String(value) } : { doubleValue: value };
-  }
+  if (typeof value === "number") return Number.isInteger(value) ? { integerValue: String(value) } : { doubleValue: value };
   if (typeof value === "object") {
-    return {
-      mapValue: {
-        fields: Object.fromEntries(Object.entries(value).map(([key, val]) => [key, valueToFs(val)])),
-      },
-    };
+    return { mapValue: { fields: Object.fromEntries(Object.entries(value).map(([key, val]) => [key, fsValue(val)])) } };
   }
   return { stringValue: String(value) };
 }
 
-function fsToJs(value: any): any {
+function jsValue(value: any): any {
   if (!value) return undefined;
   if ("stringValue" in value) return value.stringValue;
   if ("integerValue" in value) return Number(value.integerValue);
@@ -189,12 +163,64 @@ function fsToJs(value: any): any {
   if ("booleanValue" in value) return Boolean(value.booleanValue);
   if ("mapValue" in value) {
     const fields = value.mapValue.fields || {};
-    return Object.fromEntries(Object.entries(fields).map(([key, val]) => [key, fsToJs(val)]));
+    return Object.fromEntries(Object.entries(fields).map(([key, val]) => [key, jsValue(val)]));
   }
   return undefined;
 }
 
-function productFields(product: NormalizedProduct, extra: Record<string, any> = {}) {
+async function fsFetch(token: string, url: string, init: RequestInit = {}) {
+  const response = await fetch(url, {
+    ...init,
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(init.headers || {}) },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error?.message || "Firestore request failed");
+  return data;
+}
+
+async function getSyncState(token: string) {
+  const response = await fetch(`${firestoreBase()}/syncState/driveLatest`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (response.status === 404) return null;
+  const data = await response.json();
+  return Object.fromEntries(Object.entries(data.fields || {}).map(([key, val]) => [key, jsValue(val)]));
+}
+
+async function saveSyncState(token: string, file: any) {
+  await fsFetch(token, `${firestoreBase()}/syncState/driveLatest`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      fields: {
+        fileId: fsValue(file.id),
+        fileName: fsValue(file.name),
+        fileModifiedTime: fsValue(file.modifiedTime),
+        syncedAt: fsValue(new Date().toISOString()),
+      },
+    }),
+  });
+}
+
+async function findProduct(token: string, barcode: string) {
+  const data = await fsFetch(token, `${firestoreBase()}:runQuery`, {
+    method: "POST",
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId: "products" }],
+        where: { fieldFilter: { field: { fieldPath: "barcode" }, op: "EQUAL", value: { stringValue: barcode } } },
+        limit: 1,
+      },
+    }),
+  });
+  const document = data.find((row: any) => row.document)?.document;
+  if (!document) return null;
+  return {
+    url: `https://firestore.googleapis.com/v1/${document.name}`,
+    data: Object.fromEntries(Object.entries(document.fields || {}).map(([key, val]) => [key, jsValue(val)])),
+  };
+}
+
+function productCreateFields(product: ProductRow) {
   return Object.fromEntries(
     Object.entries({
       barcode: product.barcode,
@@ -211,117 +237,32 @@ function productFields(product: NormalizedProduct, extra: Record<string, any> = 
       spec: product.spec,
       stock: 0,
       source: "googleDrive",
+      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      ...extra,
-    }).map(([key, value]) => [key, valueToFs(value)])
+    }).map(([key, value]) => [key, fsValue(value)])
   );
 }
 
-async function firestoreFetch(token: string, url: string, init: RequestInit = {}) {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(init.headers || {}),
-    },
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error?.message || "Firestore request failed");
-  return data;
-}
-
-async function getSyncState(token: string) {
-  const url = `${firestoreBase()}/syncState/driveLatest`;
-  const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (response.status === 404) return null;
-  const data = await response.json();
-  const fields = data.fields || {};
-  return Object.fromEntries(Object.entries(fields).map(([key, val]) => [key, fsToJs(val)]));
-}
-
-async function saveSyncState(token: string, file: any) {
-  await firestoreFetch(token, `${firestoreBase()}/syncState/driveLatest`, {
-    method: "PATCH",
-    body: JSON.stringify({
-      fields: {
-        fileId: valueToFs(file.id),
-        fileName: valueToFs(file.name),
-        fileModifiedTime: valueToFs(file.modifiedTime),
-        syncedAt: valueToFs(new Date().toISOString()),
-      },
-    }),
-  });
-}
-
-async function findProduct(token: string, barcode: string) {
-  const data = await firestoreFetch(token, `${firestoreBase()}:runQuery`, {
+async function createProduct(token: string, product: ProductRow) {
+  await fsFetch(token, `${firestoreBase()}/products`, {
     method: "POST",
-    body: JSON.stringify({
-      structuredQuery: {
-        from: [{ collectionId: "products" }],
-        where: {
-          fieldFilter: {
-            field: { fieldPath: "barcode" },
-            op: "EQUAL",
-            value: { stringValue: barcode },
-          },
-        },
-        limit: 1,
-      },
-    }),
-  });
-  const match = data.find((row: any) => row.document)?.document;
-  if (!match) return null;
-  const fields = match.fields || {};
-  return {
-    name: match.name,
-    data: Object.fromEntries(Object.entries(fields).map(([key, val]) => [key, fsToJs(val)])),
-  };
-}
-
-async function createProduct(token: string, product: NormalizedProduct) {
-  return firestoreFetch(token, `${firestoreBase()}/products`, {
-    method: "POST",
-    body: JSON.stringify({ fields: productFields(product, { createdAt: new Date().toISOString() }) }),
+    body: JSON.stringify({ fields: productCreateFields(product) }),
   });
 }
 
-async function updateProduct(token: string, documentName: string, fields: Record<string, any>) {
-  const updateFields = Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, valueToFs(value)]));
+async function updateProduct(token: string, documentUrl: string, fields: Record<string, any>) {
   const params = new URLSearchParams();
-  Object.keys(updateFields).forEach((key) => params.append("updateMask.fieldPaths", key));
-  return firestoreFetch(token, `${documentName}?${params}`, {
+  Object.keys(fields).forEach((key) => params.append("updateMask.fieldPaths", key));
+  await fsFetch(token, `${documentUrl}?${params}`, {
     method: "PATCH",
-    body: JSON.stringify({ fields: updateFields }),
+    body: JSON.stringify({ fields: Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, fsValue(value)])) }),
   });
 }
 
-async function queueLabel(token: string, product: NormalizedProduct, oldPrice: number, reason: string) {
-  await firestoreFetch(token, `${firestoreBase()}/labelPrintQueue`, {
+async function createRecord(token: string, collectionName: string, payload: Record<string, any>) {
+  await fsFetch(token, `${firestoreBase()}/${collectionName}`, {
     method: "POST",
-    body: JSON.stringify({
-      fields: Object.fromEntries(
-        Object.entries({
-          barcode: product.barcode,
-          name: product.name,
-          oldPrice,
-          newPrice: product.price,
-          reason,
-          status: "pending",
-          createdAt: new Date().toISOString(),
-        }).map(([key, value]) => [key, valueToFs(value)])
-      ),
-    }),
-  });
-}
-
-async function writeSyncRun(token: string, payload: Record<string, any>) {
-  await firestoreFetch(token, `${firestoreBase()}/syncRuns`, {
-    method: "POST",
-    body: JSON.stringify({
-      fields: Object.fromEntries(Object.entries(payload).map(([key, value]) => [key, valueToFs(value)])),
-    }),
+    body: JSON.stringify({ fields: Object.fromEntries(Object.entries(payload).map(([key, value]) => [key, fsValue(value)])) }),
   });
 }
 
@@ -335,12 +276,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const token = await getAccessToken();
-    const file = await latestDriveFile(token, folderId);
+    const file = await driveLatestFile(token, folderId);
     if (!file) return res.status(404).json({ ok: false, message: "No valid product file found" });
 
     const state = await getSyncState(token);
     if (state?.fileId === file.id && state?.fileModifiedTime === file.modifiedTime) {
-      await writeSyncRun(token, {
+      await createRecord(token, "syncRuns", {
         status: "skipped",
         fileId: file.id,
         fileName: file.name,
@@ -352,10 +293,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ ok: true, status: "skipped", file });
     }
 
-    const text = await downloadDriveFile(token, file.id);
-    const products = file.name.toLowerCase().endsWith(".csv")
-      ? []
-      : parseHtmlProducts(text);
+    const html = await downloadText(token, file.id);
+    const products = parsePosHtml(html);
     if (!products.length) throw new Error("No valid product rows parsed");
 
     let createdCount = 0;
@@ -369,7 +308,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const existing = await findProduct(token, product.barcode);
         if (!existing) {
           await createProduct(token, product);
-          await queueLabel(token, product, 0, "new_product");
+          await createRecord(token, "labelPrintQueue", {
+            barcode: product.barcode,
+            name: product.name,
+            oldPrice: 0,
+            newPrice: product.price,
+            reason: "new_product",
+            status: "pending",
+            createdAt: new Date().toISOString(),
+          });
           createdCount += 1;
           continue;
         }
@@ -393,22 +340,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
 
         const hasPriceChanged = oldPrice !== product.price;
-        const changed = Object.entries(changes).some(([key, value]) => existing.data[key] !== value);
-        if (changed) {
-          await updateProduct(token, existing.name, changes);
+        const hasAnyChange = Object.entries(changes).some(([key, value]) => existing.data[key] !== value);
+
+        if (hasAnyChange) {
+          await updateProduct(token, existing.url, changes);
           updatedCount += 1;
-          if (hasPriceChanged) await queueLabel(token, product, oldPrice, "price_changed");
+          if (hasPriceChanged) {
+            await createRecord(token, "labelPrintQueue", {
+              barcode: product.barcode,
+              name: existing.data.name || product.name,
+              oldPrice,
+              newPrice: product.price,
+              reason: "price_changed",
+              status: "pending",
+              createdAt: new Date().toISOString(),
+            });
+          }
         } else {
           skippedCount += 1;
         }
-      } catch (rowError) {
-        console.error("product sync row failed", product.barcode, rowError);
+      } catch (error) {
+        console.error("product sync row failed", product.barcode, error);
         errorCount += 1;
       }
     }
 
     await saveSyncState(token, file);
-    await writeSyncRun(token, {
+    await createRecord(token, "syncRuns", {
       status: "success",
       fileId: file.id,
       fileName: file.name,
@@ -435,9 +393,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch (error) {
     console.error("drive sync failed", error);
-    return res.status(500).json({
-      ok: false,
-      message: error instanceof Error ? error.message : "Drive sync failed",
-    });
+    return res.status(500).json({ ok: false, message: error instanceof Error ? error.message : "Drive sync failed" });
   }
 }
