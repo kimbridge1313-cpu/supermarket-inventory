@@ -2,6 +2,8 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import crypto from "node:crypto";
 
 const FEIE_URL = process.env.FEIE_API_URL ?? "https://api.jp.feieyun.com/Api/Open/";
+const CUT_TAG = "<CUT>";
+const DEFAULT_FEED_LINES = Number(process.env.FEIE_FEED_LINES_BEFORE_CUT ?? 4);
 
 type SuccessPayload = {
   ok: true;
@@ -13,6 +15,18 @@ type ErrorPayload = {
   ok: false;
   message: string;
 };
+
+function normalizePrintContent(rawContent: unknown) {
+  const content = String(rawContent ?? "");
+  const feedLines = Math.max(2, Math.min(8, Number.isFinite(DEFAULT_FEED_LINES) ? DEFAULT_FEED_LINES : 4));
+  const feed = "<BR>".repeat(feedLines);
+
+  if (content.includes(CUT_TAG)) {
+    return content.replaceAll(CUT_TAG, `${feed}${CUT_TAG}`);
+  }
+
+  return `${content}${feed}${CUT_TAG}`;
+}
 
 export default async function handler(
   req: VercelRequest,
@@ -42,6 +56,7 @@ export default async function handler(
       });
     }
 
+    const printContent = normalizePrintContent(content);
     const stime = Math.floor(Date.now() / 1000).toString();
     const sig = crypto
       .createHash("sha1")
@@ -54,7 +69,7 @@ export default async function handler(
     form.set("sig", sig);
     form.set("apiname", "Open_printMsg");
     form.set("sn", String(sn));
-    form.set("content", String(content));
+    form.set("content", printContent);
     form.set("times", String(times));
 
     const response = await fetch(FEIE_URL, {
