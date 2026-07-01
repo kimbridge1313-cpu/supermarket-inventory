@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 
 const FEIE_URL = process.env.FEIE_API_URL ?? "https://api.jp.feieyun.com/Api/Open/";
 const CUT_TAG = "<CUT>";
+const ENABLE_EXPLICIT_CUT = process.env.FEIE_ENABLE_CUT === "true";
 
 type SuccessPayload = {
   ok: true;
@@ -24,16 +25,13 @@ function estimatePrintedLines(content: string) {
     .trim();
 
   const explicitBreaks = (content.match(/<BR>/g) || []).length;
-  const weightedChars = [...text].reduce((total, char) => {
-    return total + (char.charCodeAt(0) > 255 ? 1 : 0.5);
-  }, 0);
-
+  const weightedChars = [...text].reduce((total, char) => total + (char.charCodeAt(0) > 255 ? 1 : 0.5), 0);
   return explicitBreaks + Math.ceil(weightedChars / 12);
 }
 
 function dynamicFeedLines(content: string) {
   const forced = Number(process.env.FEIE_FEED_LINES_BEFORE_CUT || "");
-  if (Number.isFinite(forced) && forced > 0) return Math.max(1, Math.min(8, forced));
+  if (Number.isFinite(forced) && forced > 0) return Math.max(0, Math.min(8, forced));
 
   const estimatedLines = estimatePrintedLines(content);
   if (estimatedLines <= 6) return 1;
@@ -46,7 +44,7 @@ function normalizePrintContent(rawContent: unknown) {
     .replaceAll(CUT_TAG, "")
     .replace(/(<BR>\s*)+$/g, "");
   const feed = "<BR>".repeat(dynamicFeedLines(contentWithoutCut));
-  return `${contentWithoutCut}${feed}${CUT_TAG}`;
+  return ENABLE_EXPLICIT_CUT ? `${contentWithoutCut}${feed}${CUT_TAG}` : `${contentWithoutCut}${feed}`;
 }
 
 export default async function handler(
@@ -91,7 +89,7 @@ export default async function handler(
     const result = await response.json();
 
     if (result?.ret === 0) {
-      return res.status(200).json({ ok: true, orderId: result.data, message: "Print job submitted" });
+      return res.status(200).json({ ok: true, orderId: result.data, message: ENABLE_EXPLICIT_CUT ? "Print job submitted with explicit cut" : "Print job submitted without explicit cut" });
     }
 
     return res.status(400).json({ ok: false, message: result?.msg ?? "Feie API error" });
