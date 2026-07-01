@@ -20,24 +20,25 @@ window.addEventListener('DOMContentLoaded', () => {
     const scanModal = $('barcode-scan-modal');
     const reader = $('html5-qrcode-reader');
     const video = $('barcode-scan-video');
-    if (!searchInput || !scanModal || !video) return;
+    if (!searchInput || !scanModal || !reader) return;
 
-    if (reader) reader.style.display = 'none';
-    video.style.display = 'block';
-    video.muted = true;
-    video.playsInline = true;
+    if (video) video.style.display = 'none';
+    reader.style.display = 'block';
+    reader.innerHTML = '';
     scanModal.classList.add('open');
 
     const hint = scanModal.querySelector('.muted');
-    if (hint) hint.textContent = '請把商品條碼橫向放在畫面中央，距離約 15–25 公分，避免反光。';
+    if (hint) hint.textContent = '請讓商品條碼水平、完整進入畫面中間；距離約 15–30 公分，光線要足、不要反光。';
 
-    let controls = null;
-    let codeReader = null;
-    const finish = async (code) => {
-      try { controls?.stop?.(); } catch (_) {}
-      try { codeReader?.reset?.(); } catch (_) {}
+    let detected = false;
+    const stopCamera = () => {
+      try { window.Quagga?.offDetected?.(); } catch (_) {}
+      try { window.Quagga?.stop?.(); } catch (_) {}
       scanModal.classList.remove('open');
-      video.srcObject = null;
+      reader.innerHTML = '';
+    };
+    const finish = (code) => {
+      stopCamera();
       if (code) {
         searchInput.value = code;
         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -49,21 +50,59 @@ window.addEventListener('DOMContentLoaded', () => {
     scanModal.onclick = (e) => { if (e.target === scanModal) finish(''); };
 
     try {
-      await loadScript('https://unpkg.com/@zxing/browser@latest/umd/index.min.js');
-      const ZXingBrowser = window.ZXingBrowser || window.ZXing;
-      if (!ZXingBrowser?.BrowserMultiFormatReader) throw new Error('ZXing unavailable');
+      await loadScript('https://unpkg.com/@ericblade/quagga2/dist/quagga.min.js');
+      if (!window.Quagga) throw new Error('Quagga unavailable');
 
-      codeReader = new ZXingBrowser.BrowserMultiFormatReader();
-      const devices = await ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
-      const backCamera = devices.find((device) => /back|rear|environment|後|背/i.test(device.label || '')) || devices[devices.length - 1];
-      const deviceId = backCamera?.deviceId;
-
-      controls = await codeReader.decodeFromVideoDevice(deviceId, video, (result, error, ctrl) => {
-        if (result?.getText) finish(result.getText().trim());
+      await new Promise((resolve, reject) => {
+        window.Quagga.init({
+          inputStream: {
+            name: 'Live',
+            type: 'LiveStream',
+            target: reader,
+            constraints: {
+              facingMode: 'environment',
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            },
+            area: {
+              top: '25%',
+              right: '5%',
+              left: '5%',
+              bottom: '25%'
+            }
+          },
+          locator: {
+            patchSize: 'large',
+            halfSample: false
+          },
+          numOfWorkers: navigator.hardwareConcurrency ? Math.min(4, navigator.hardwareConcurrency) : 2,
+          frequency: 12,
+          decoder: {
+            readers: [
+              'ean_reader',
+              'ean_8_reader',
+              'upc_reader',
+              'upc_e_reader',
+              'code_128_reader',
+              'code_39_reader',
+              'i2of5_reader'
+            ],
+            multiple: false
+          },
+          locate: true
+        }, (error) => error ? reject(error) : resolve());
       });
+
+      window.Quagga.onDetected((result) => {
+        const code = result?.codeResult?.code;
+        if (!code || detected) return;
+        detected = true;
+        finish(String(code).trim());
+      });
+      window.Quagga.start();
     } catch (error) {
-      await finish('');
-      const code = prompt('目前無法辨識條碼，請手動輸入條碼。也可以換更亮的位置、拉遠一點，或用外接掃碼器。');
+      stopCamera();
+      const code = prompt('目前相機掃碼仍無法辨識，請手動輸入條碼，或使用藍牙 / USB 掃碼器。');
       if (code) {
         searchInput.value = code.trim();
         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
