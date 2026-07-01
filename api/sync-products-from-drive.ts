@@ -45,6 +45,19 @@ const b64url = (input: string | Buffer) =>
 
 const signingKey = () => (process.env.DRIVE_SIGNING_KEY || "").replace(/\\n/g, "\n");
 
+async function readJsonSafe(response: Response, label: string) {
+  const raw = await response.text();
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {
+      error: { message: `${label} returned non-JSON response: ${raw.slice(0, 500)}` },
+      rawText: raw.slice(0, 500),
+    };
+  }
+}
+
 function getProjectId() {
   const id = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
   if (!id) throw new Error("Missing Firebase project id environment variable");
@@ -113,8 +126,8 @@ async function getAccessToken() {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }),
   });
-  const data = await response.json();
-  if (!response.ok || !data.access_token) throw new Error(data.error_description || data.error || "Unable to get access token");
+  const data: any = await readJsonSafe(response, "Google OAuth");
+  if (!response.ok || !data.access_token) throw new Error(data.error_description || data.error?.message || data.error || "Unable to get access token");
   return data.access_token as string;
 }
 
@@ -126,8 +139,8 @@ async function driveLatestFile(token: string, folderId: string) {
     pageSize: "20",
   });
   const response = await fetch(`${DRIVE_API}/files?${params}`, { headers: { Authorization: `Bearer ${token}` } });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error?.message || "Unable to list Drive files");
+  const data: any = await readJsonSafe(response, "Google Drive files list");
+  if (!response.ok) throw new Error(data.error?.message || data.rawText || "Unable to list Drive files");
   return (data.files || []).find((file: any) => {
     const name = String(file.name || "").toLowerCase();
     return ALLOWED_EXTENSIONS.some((ext) => name.endsWith(ext));
@@ -136,7 +149,10 @@ async function driveLatestFile(token: string, folderId: string) {
 
 async function downloadText(token: string, fileId: string) {
   const response = await fetch(`${DRIVE_API}/files/${fileId}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
-  if (!response.ok) throw new Error("Unable to download Drive file");
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(text.slice(0, 500) || "Unable to download Drive file");
+  }
   const buffer = await response.arrayBuffer();
   const big5 = new TextDecoder("big5").decode(buffer);
   const utf8 = new TextDecoder("utf-8").decode(buffer);
@@ -200,15 +216,16 @@ function jsValue(value: any): any {
 
 async function fsFetch(token: string, url: string, init: RequestInit = {}) {
   const response = await fetch(url, { ...init, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(init.headers || {}) } });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error?.message || "Firestore request failed");
+  const data: any = await readJsonSafe(response, "Firestore");
+  if (!response.ok) throw new Error(data.error?.message || data.rawText || "Firestore request failed");
   return data;
 }
 
 async function getSyncState(token: string) {
   const response = await fetch(`${firestoreBase()}/syncState/driveLatest`, { headers: { Authorization: `Bearer ${token}` } });
   if (response.status === 404) return null;
-  const data = await response.json();
+  const data: any = await readJsonSafe(response, "Firestore syncState");
+  if (!response.ok) throw new Error(data.error?.message || data.rawText || "Unable to read sync state");
   return Object.fromEntries(Object.entries(data.fields || {}).map(([key, val]) => [key, jsValue(val)]));
 }
 
@@ -224,21 +241,17 @@ function docToProduct(document: any): FsProduct {
   return { url: `https://firestore.googleapis.com/v1/${document.name}`, id, data: Object.fromEntries(Object.entries(document.fields || {}).map(([key, val]) => [key, jsValue(val)])) };
 }
 
-async function findProduct(token: string, barcode: string) {
-  const data = await fsFetch(token, `${firestoreBase()}:runQuery`, {
-    method: "POST",
-    body: JSON.stringify({ structuredQuery: { from: [{ collectionId: "products" }], where: { fieldFilter: { field: { fieldPath: "barcode" }, op: "EQUAL", value: { stringValue: barcode } } }, limit: 1 } }),
-  });
-  const document = data.find((row: any) => row.document)?.document;
-  return document ? docToProduct(document) : null;
-}
-
-async function findProductsByName(token: string, name: string) {
-  const data = await fsFetch(token, `${firestoreBase()}:runQuery`, {
-    method: "POST",
-    body: JSON.stringify({ structuredQuery: { from: [{ collectionId: "products" }], where: { fieldFilter: { field: { fieldPath: "name" }, op: "EQUAL", value: { stringValue: name } } }, limit: 10 } }),
-  });
-  return data.filter((row: any) => row.document).map((row: any) => docToProduct(row.document));
+async function listExistingProducts(token: string) {
+  const products: FsProduct[] = [];
+  let pageToken = "";
+  do {
+    const params = new URLSearchParams({ pageSize: "1000" });
+    if (pageToken) params.set("pageToken", pageToken);
+    const data = await fsFetch(token, `${firestoreBase()}/products?${params}`);
+    products.push(...(data.documents || []).map((document: any) => docToProduct(document)));
+    pageToken = data.nextPageToken || "";
+  } while (pageToken);
+  return products;
 }
 
 function productCreateFields(product: ProductRow) {
@@ -265,7 +278,8 @@ function productCreateFields(product: ProductRow) {
 }
 
 async function createProduct(token: string, product: ProductRow) {
-  await fsFetch(token, `${firestoreBase()}/products`, { method: "POST", body: JSON.stringify({ fields: productCreateFields(product) }) });
+  const data = await fsFetch(token, `${firestoreBase()}/products`, { method: "POST", body: JSON.stringify({ fields: productCreateFields(product) }) });
+  return data.name ? docToProduct(data) : null;
 }
 
 async function updateProduct(token: string, documentUrl: string, fields: Record<string, any>) {
@@ -276,6 +290,27 @@ async function updateProduct(token: string, documentUrl: string, fields: Record<
 
 async function createRecord(token: string, collectionName: string, payload: Record<string, any>) {
   await fsFetch(token, `${firestoreBase()}/${collectionName}`, { method: "POST", body: JSON.stringify({ fields: Object.fromEntries(Object.entries(payload).map(([key, value]) => [key, fsValue(value)])) }) });
+}
+
+function indexByBarcode(products: FsProduct[]) {
+  const map = new Map<string, FsProduct>();
+  products.forEach((product) => {
+    const barcode = String(product.data.barcode || "").trim();
+    if (barcode) map.set(barcode, product);
+  });
+  return map;
+}
+
+function indexByName(products: FsProduct[]) {
+  const map = new Map<string, FsProduct[]>();
+  products.forEach((product) => {
+    const name = String(product.data.name || "").trim();
+    if (!name) return;
+    const list = map.get(name) || [];
+    list.push(product);
+    map.set(name, list);
+  });
+  return map;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -301,6 +336,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const products = parsePosHtml(html);
     if (!products.length) throw new Error("No valid product rows parsed");
 
+    const existingProducts = await listExistingProducts(token);
+    const productsByBarcode = indexByBarcode(existingProducts);
+    const productsByName = indexByName(existingProducts);
+
     let createdCount = 0;
     let updatedCount = 0;
     let skippedCount = 0;
@@ -309,13 +348,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     for (const product of products) {
       try {
-        const existing = await findProduct(token, product.barcode);
+        const existing = productsByBarcode.get(product.barcode) || null;
         const generated = generateLabelName(product.name);
 
         if (!existing) {
-          const sameNameProducts = await findProductsByName(token, product.name);
-          await createProduct(token, product);
+          const sameNameProducts = (productsByName.get(product.name) || []).filter((match) => String(match.data.barcode || "") !== product.barcode);
+          const created = await createProduct(token, product);
           await createRecord(token, "labelPrintQueue", { barcode: product.barcode, name: product.name, labelName: generated.labelName, oldPrice: 0, newPrice: product.price, reason: "new_product", status: "pending", createdAt: new Date().toISOString() });
+
+          if (created) {
+            productsByBarcode.set(product.barcode, created);
+            const list = productsByName.get(product.name) || [];
+            list.push(created);
+            productsByName.set(product.name, list);
+          }
 
           if (sameNameProducts.length) {
             reviewCount += 1;
@@ -360,6 +406,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (hasAnyChange) {
           await updateProduct(token, existing.url, changes);
+          existing.data = { ...existing.data, ...changes };
           updatedCount += 1;
           if (hasPriceChanged) {
             await createRecord(token, "labelPrintQueue", { barcode: product.barcode, name: existing.data.name || product.name, labelName: existing.data.labelName || generated.labelName, oldPrice, newPrice: product.price, reason: "price_changed", status: "pending", createdAt: new Date().toISOString() });
@@ -374,9 +421,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     await saveSyncState(token, file);
-    await createRecord(token, "syncRuns", { status: "success", fileId: file.id, fileName: file.name, fileModifiedTime: file.modifiedTime, startedAt, finishedAt: new Date().toISOString(), totalRows: products.length, createdCount, updatedCount, skippedCount, reviewCount, errorCount });
+    await createRecord(token, "syncRuns", { status: "success", fileId: file.id, fileName: file.name, fileModifiedTime: file.modifiedTime, startedAt, finishedAt: new Date().toISOString(), totalRows: products.length, existingProducts: existingProducts.length, createdCount, updatedCount, skippedCount, reviewCount, errorCount });
 
-    return res.status(200).json({ ok: true, file, totalRows: products.length, createdCount, updatedCount, skippedCount, reviewCount, errorCount });
+    return res.status(200).json({ ok: true, file, totalRows: products.length, existingProducts: existingProducts.length, createdCount, updatedCount, skippedCount, reviewCount, errorCount });
   } catch (error) {
     console.error("drive sync failed", error);
     return res.status(500).json({ ok: false, message: error instanceof Error ? error.message : "Drive sync failed" });
