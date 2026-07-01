@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node -e \"const fs=require('fs'); for (const f of ['index.html','api/sync-products-from-drive.ts']) if (fs.existsSync(f)) { let s=fs.readFileSync(f,'utf8'); s=s.replace(/,\\\"咖啡\\\"/g,'').replace(/, \\\"咖啡\\\"/g,''); fs.writeFileSync(f,s); }\" && vite build",
+    "build": "node build-patch.cjs && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
