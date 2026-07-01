@@ -9,8 +9,6 @@ window.addEventListener('DOMContentLoaded', () => {
     document.head.appendChild(script);
   });
 
-  loadScript('/mobile-ui-force.js').catch(() => {});
-
   const normalizeCode = (value) => String(value || '').replace(/[^0-9A-Z]/gi, '').trim();
   const applySearch = (searchInput, code) => {
     const finalCode = normalizeCode(code);
