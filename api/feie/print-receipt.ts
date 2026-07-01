@@ -33,35 +33,27 @@ function estimatePrintedLines(content: string) {
 
 function dynamicFeedLines(content: string) {
   const forced = Number(process.env.FEIE_FEED_LINES_BEFORE_CUT || "");
-  if (Number.isFinite(forced) && forced > 0) {
-    return Math.max(1, Math.min(8, forced));
-  }
+  if (Number.isFinite(forced) && forced > 0) return Math.max(1, Math.min(8, forced));
 
   const estimatedLines = estimatePrintedLines(content);
-
-  if (estimatedLines <= 6) return 2;
-  if (estimatedLines <= 10) return 3;
-  return 4;
+  if (estimatedLines <= 6) return 1;
+  if (estimatedLines <= 10) return 2;
+  return 3;
 }
 
 function normalizePrintContent(rawContent: unknown) {
-  const content = String(rawContent ?? "");
-  const feed = "<BR>".repeat(dynamicFeedLines(content));
-
-  if (content.includes(CUT_TAG)) {
-    return content.replaceAll(CUT_TAG, `${feed}${CUT_TAG}`);
-  }
-
-  return `${content}${feed}${CUT_TAG}`;
+  const contentWithoutCut = String(rawContent ?? "")
+    .replaceAll(CUT_TAG, "")
+    .replace(/(<BR>\s*)+$/g, "");
+  const feed = "<BR>".repeat(dynamicFeedLines(contentWithoutCut));
+  return `${contentWithoutCut}${feed}${CUT_TAG}`;
 }
 
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse<SuccessPayload | ErrorPayload>
 ) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ ok: false, message: "Method not allowed" });
-  }
+  if (req.method !== "POST") return res.status(405).json({ ok: false, message: "Method not allowed" });
 
   try {
     const { sn: bodySn, content, times = 1 } = req.body ?? {};
@@ -70,25 +62,16 @@ export default async function handler(
     const sn = bodySn || process.env.FEIE_DEFAULT_SN;
 
     if (!user || !secret) {
-      return res.status(500).json({
-        ok: false,
-        message: "Missing Feie environment variables on Vercel",
-      });
+      return res.status(500).json({ ok: false, message: "Missing Feie environment variables on Vercel" });
     }
 
     if (!sn || !content) {
-      return res.status(400).json({
-        ok: false,
-        message: "Missing printer SN or print content",
-      });
+      return res.status(400).json({ ok: false, message: "Missing printer SN or print content" });
     }
 
     const printContent = normalizePrintContent(content);
     const stime = Math.floor(Date.now() / 1000).toString();
-    const sig = crypto
-      .createHash("sha1")
-      .update(`${user}${secret}${stime}`)
-      .digest("hex");
+    const sig = crypto.createHash("sha1").update(`${user}${secret}${stime}`).digest("hex");
 
     const form = new URLSearchParams();
     form.set("user", user);
@@ -108,17 +91,10 @@ export default async function handler(
     const result = await response.json();
 
     if (result?.ret === 0) {
-      return res.status(200).json({
-        ok: true,
-        orderId: result.data,
-        message: "Print job submitted",
-      });
+      return res.status(200).json({ ok: true, orderId: result.data, message: "Print job submitted" });
     }
 
-    return res.status(400).json({
-      ok: false,
-      message: result?.msg ?? "Feie API error",
-    });
+    return res.status(400).json({ ok: false, message: result?.msg ?? "Feie API error" });
   } catch (error) {
     console.error("feie print api failed", error);
     return res.status(500).json({ ok: false, message: "Internal server error" });
