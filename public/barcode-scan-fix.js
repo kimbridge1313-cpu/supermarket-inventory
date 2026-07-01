@@ -28,15 +28,18 @@ window.addEventListener('DOMContentLoaded', () => {
     scanModal.classList.add('open');
 
     const hint = scanModal.querySelector('.muted');
-    if (hint) hint.textContent = '辨識中：請讓商品條碼水平、完整進入畫面中間；系統會連續確認 3 次後才採用。';
+    if (hint) hint.textContent = '準備掃描：請先把條碼水平放進畫面中央，1.5 秒後開始辨識。';
 
     let detected = false;
+    let accepting = false;
     const candidates = new Map();
     const REQUIRED_HITS = 3;
     const MIN_LENGTH = 6;
+    const WARMUP_MS = 1500;
     const normalizeCode = (value) => String(value || '').replace(/[^0-9A-Z]/gi, '').trim();
     const isLikelyBarcode = (value) => value.length >= MIN_LENGTH && value.length <= 32;
     const stopCamera = () => {
+      detected = true;
       try { window.Quagga?.offDetected?.(); } catch (_) {}
       try { window.Quagga?.stop?.(); } catch (_) {}
       scanModal.classList.remove('open');
@@ -70,10 +73,10 @@ window.addEventListener('DOMContentLoaded', () => {
               height: { ideal: 720 }
             },
             area: {
-              top: '28%',
-              right: '8%',
-              left: '8%',
-              bottom: '28%'
+              top: '30%',
+              right: '10%',
+              left: '10%',
+              bottom: '30%'
             }
           },
           locator: {
@@ -81,7 +84,7 @@ window.addEventListener('DOMContentLoaded', () => {
             halfSample: false
           },
           numOfWorkers: 1,
-          frequency: 8,
+          frequency: 6,
           decoder: {
             readers: [
               'ean_reader',
@@ -99,19 +102,27 @@ window.addEventListener('DOMContentLoaded', () => {
       });
 
       window.Quagga.onDetected((result) => {
+        if (!accepting || detected) return;
         const rawCode = result?.codeResult?.code;
         const code = normalizeCode(rawCode);
-        if (!code || detected || !isLikelyBarcode(code)) return;
+        if (!code || !isLikelyBarcode(code)) return;
         const count = (candidates.get(code) || 0) + 1;
         candidates.set(code, count);
-        if (hint) hint.textContent = `辨識中：${code}（${count}/${REQUIRED_HITS}）請保持條碼穩定`;
+        if (hint) hint.textContent = `確認中：${code}（${count}/${REQUIRED_HITS}）請保持條碼穩定`;
         if (count >= REQUIRED_HITS) {
           detected = true;
+          if (hint) hint.textContent = `已確認：${code}`;
           if (navigator.vibrate) navigator.vibrate(80);
-          finish(code);
+          setTimeout(() => finish(code), 250);
         }
       });
       window.Quagga.start();
+      setTimeout(() => {
+        if (detected) return;
+        accepting = true;
+        candidates.clear();
+        if (hint) hint.textContent = '開始辨識：請保持條碼水平且完整，不要快速晃過。';
+      }, WARMUP_MS);
     } catch (error) {
       stopCamera();
       const code = prompt('目前相機掃碼仍無法辨識，請手動輸入條碼，或使用藍牙 / USB 掃碼器。');
