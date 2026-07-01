@@ -20,20 +20,24 @@ window.addEventListener('DOMContentLoaded', () => {
     const scanModal = $('barcode-scan-modal');
     const reader = $('html5-qrcode-reader');
     const video = $('barcode-scan-video');
-    if (!searchInput || !scanModal || !reader) return;
+    if (!searchInput || !scanModal || !video) return;
 
-    if (video) video.style.display = 'none';
-    reader.style.display = 'block';
-    reader.innerHTML = '';
+    if (reader) reader.style.display = 'none';
+    video.style.display = 'block';
+    video.muted = true;
+    video.playsInline = true;
     scanModal.classList.add('open');
 
-    let scanner = null;
+    const hint = scanModal.querySelector('.muted');
+    if (hint) hint.textContent = '請把商品條碼橫向放在畫面中央，距離約 15–25 公分，避免反光。';
+
+    let controls = null;
+    let codeReader = null;
     const finish = async (code) => {
-      if (scanner) {
-        try { await scanner.stop(); } catch (_) {}
-        try { await scanner.clear(); } catch (_) {}
-      }
+      try { controls?.stop?.(); } catch (_) {}
+      try { codeReader?.reset?.(); } catch (_) {}
       scanModal.classList.remove('open');
+      video.srcObject = null;
       if (code) {
         searchInput.value = code;
         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -45,31 +49,21 @@ window.addEventListener('DOMContentLoaded', () => {
     scanModal.onclick = (e) => { if (e.target === scanModal) finish(''); };
 
     try {
-      await loadScript('https://unpkg.com/html5-qrcode/html5-qrcode.min.js');
-      if (!window.Html5Qrcode || !window.Html5QrcodeSupportedFormats) throw new Error('scanner library unavailable');
+      await loadScript('https://unpkg.com/@zxing/browser@latest/umd/index.min.js');
+      const ZXingBrowser = window.ZXingBrowser || window.ZXing;
+      if (!ZXingBrowser?.BrowserMultiFormatReader) throw new Error('ZXing unavailable');
 
-      const F = window.Html5QrcodeSupportedFormats;
-      scanner = new window.Html5Qrcode('html5-qrcode-reader', {
-        formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.CODE_39, F.ITF]
+      codeReader = new ZXingBrowser.BrowserMultiFormatReader();
+      const devices = await ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
+      const backCamera = devices.find((device) => /back|rear|environment|後|背/i.test(device.label || '')) || devices[devices.length - 1];
+      const deviceId = backCamera?.deviceId;
+
+      controls = await codeReader.decodeFromVideoDevice(deviceId, video, (result, error, ctrl) => {
+        if (result?.getText) finish(result.getText().trim());
       });
-
-      await scanner.start(
-        { facingMode: 'environment' },
-        {
-          fps: 15,
-          qrbox: (viewfinderWidth, viewfinderHeight) => {
-            const width = Math.floor(viewfinderWidth * 0.86);
-            const height = Math.max(90, Math.floor(viewfinderHeight * 0.28));
-            return { width, height };
-          },
-          aspectRatio: 1.777
-        },
-        (decodedText) => finish(String(decodedText || '').trim()),
-        () => {}
-      );
     } catch (error) {
       await finish('');
-      const code = prompt('目前無法辨識條碼，請手動輸入條碼。也可以確認相機權限、光線與條碼距離後再試。');
+      const code = prompt('目前無法辨識條碼，請手動輸入條碼。也可以換更亮的位置、拉遠一點，或用外接掃碼器。');
       if (code) {
         searchInput.value = code.trim();
         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
