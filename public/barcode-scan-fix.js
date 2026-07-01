@@ -17,6 +17,29 @@ window.addEventListener('DOMContentLoaded', () => {
     searchInput.dispatchEvent(new Event('input', { bubbles: true }));
   };
 
+  const ensureScannerOverlay = () => {
+    let overlay = document.getElementById('live-barcode-overlay');
+    if (overlay) return overlay;
+    const style = document.createElement('style');
+    style.textContent = `
+      #live-barcode-overlay{position:fixed;inset:0;z-index:20000;background:#000;display:none;color:#fff;overflow:hidden}
+      #live-barcode-overlay.open{display:block}
+      #live-barcode-reader{position:absolute;inset:0;background:#000}
+      #live-barcode-reader video{width:100vw!important;height:100vh!important;object-fit:cover!important}
+      #live-barcode-top{position:absolute;top:0;left:0;right:0;z-index:2;display:flex;align-items:center;justify-content:space-between;padding:14px;background:linear-gradient(rgba(0,0,0,.72),rgba(0,0,0,0))}
+      #live-barcode-top strong{font-size:16px}
+      #live-barcode-close{background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:999px;padding:8px 12px}
+      #live-barcode-frame{position:absolute;left:6vw;right:6vw;top:38vh;height:24vh;border:2px solid rgba(255,255,255,.9);border-radius:14px;box-shadow:0 0 0 999px rgba(0,0,0,.32);z-index:2;pointer-events:none}
+      #live-barcode-hint{position:absolute;left:12px;right:12px;bottom:22px;z-index:2;text-align:center;font-size:14px;line-height:1.5;background:rgba(0,0,0,.55);border-radius:14px;padding:10px 12px}
+    `;
+    document.head.appendChild(style);
+    overlay = document.createElement('div');
+    overlay.id = 'live-barcode-overlay';
+    overlay.innerHTML = '<div id="live-barcode-reader"></div><div id="live-barcode-top"><strong>掃描商品條碼</strong><button type="button" id="live-barcode-close">關閉</button></div><div id="live-barcode-frame"></div><div id="live-barcode-hint">準備掃描：請把條碼水平放入框內</div>';
+    document.body.appendChild(overlay);
+    return overlay;
+  };
+
   document.addEventListener('click', async (event) => {
     const btn = event.target?.closest?.('#scan-product-barcode-btn');
     if (!btn) return;
@@ -25,18 +48,16 @@ window.addEventListener('DOMContentLoaded', () => {
     event.stopImmediatePropagation();
 
     const searchInput = $('search-input');
-    const scanModal = $('barcode-scan-modal');
-    const reader = $('html5-qrcode-reader');
-    const video = $('barcode-scan-video');
-    if (!searchInput || !scanModal || !reader) return;
+    if (!searchInput) return;
 
-    if (video) video.style.display = 'none';
-    reader.style.display = 'block';
+    const overlay = ensureScannerOverlay();
+    const reader = $('live-barcode-reader');
+    const hint = $('live-barcode-hint');
+    const closeBtn = $('live-barcode-close');
+
     reader.innerHTML = '';
-    scanModal.classList.add('open');
-
-    const hint = scanModal.querySelector('.muted');
-    if (hint) hint.textContent = '準備掃描：請先把條碼水平放進畫面中央，1 秒後開始辨識。';
+    overlay.classList.add('open');
+    if (hint) hint.textContent = '準備掃描：請把條碼水平放入框內，1 秒後開始辨識';
 
     let closed = false;
     let accepting = false;
@@ -50,7 +71,7 @@ window.addEventListener('DOMContentLoaded', () => {
       closed = true;
       try { window.Quagga?.offDetected?.(); } catch (_) {}
       try { window.Quagga?.stop?.(); } catch (_) {}
-      scanModal.classList.remove('open');
+      overlay.classList.remove('open');
       reader.innerHTML = '';
     };
 
@@ -59,9 +80,7 @@ window.addEventListener('DOMContentLoaded', () => {
       if (code) applySearch(searchInput, code);
     };
 
-    const closeBtn = $('close-scan-btn');
     if (closeBtn) closeBtn.onclick = () => finish('');
-    scanModal.onclick = (e) => { if (e.target === scanModal) finish(''); };
 
     try {
       await loadScript('https://unpkg.com/@ericblade/quagga2/dist/quagga.min.js');
@@ -78,7 +97,7 @@ window.addEventListener('DOMContentLoaded', () => {
               width: { ideal: 1280 },
               height: { ideal: 720 }
             },
-            area: { top: '26%', right: '6%', left: '6%', bottom: '26%' }
+            area: { top: '34%', right: '6%', left: '6%', bottom: '34%' }
           },
           locator: { patchSize: 'medium', halfSample: false },
           numOfWorkers: 1,
@@ -109,7 +128,7 @@ window.addEventListener('DOMContentLoaded', () => {
         if (closed) return;
         accepting = true;
         candidates.clear();
-        if (hint) hint.textContent = '開始辨識：掃到後會自動帶入搜尋。';
+        if (hint) hint.textContent = '開始辨識：掃到後會自動帶入搜尋';
       }, WARMUP_MS);
     } catch (error) {
       stopCamera();
