@@ -34,8 +34,22 @@ window.addEventListener('DOMContentLoaded', () => {
       #add-product-modal-btn{width:100%;margin-left:0;margin-top:8px}
       #product-search-row{flex-direction:column;align-items:stretch}
       #scan-product-barcode-btn{width:100%}
-      .table-wrap{border-radius:12px;overflow-x:auto;-webkit-overflow-scrolling:touch}
-      #panel-products table{min-width:760px}
+      #panel-products .table-wrap{border:0;overflow:visible;border-radius:0}
+      #panel-products table{width:100%;min-width:0!important;border-collapse:separate;border-spacing:0 10px}
+      #panel-products thead{display:none}
+      #panel-products tbody{display:block;width:100%}
+      #panel-products tr{display:block;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:10px;margin-bottom:10px;box-shadow:0 4px 14px rgba(16,24,40,.04)}
+      #panel-products td{display:grid!important;grid-template-columns:76px minmax(0,1fr);gap:8px;width:100%!important;border-bottom:1px solid #f2f4f7;padding:8px 0;font-size:14px;white-space:normal!important;align-items:start}
+      #panel-products td:last-child{border-bottom:0;text-align:left!important}
+      #panel-products td::before{font-size:12px;font-weight:700;color:#667085;line-height:1.6}
+      #panel-products td:nth-child(1)::before{content:'條碼'}
+      #panel-products td:nth-child(2)::before{content:'品名'}
+      #panel-products td:nth-child(3)::before{content:'多語'}
+      #panel-products td:nth-child(4)::before{content:'售價'}
+      #panel-products td:nth-child(5)::before{content:'規格'}
+      #panel-products td:nth-child(6)::before{content:'操作'}
+      #panel-products table td.row{display:grid!important;grid-template-columns:76px minmax(0,1fr)!important;white-space:normal!important;vertical-align:top}
+      #panel-products table td.row button{margin:0 6px 6px 0;padding:9px 12px;display:inline-flex}
       #product-form-modal{padding:8px;align-items:flex-start}
       #product-form-modal .card{width:100%;max-height:calc(100vh - 16px);border-radius:14px}
       .modal-head{position:sticky;top:0;background:#fff;z-index:1;padding-bottom:8px;border-bottom:1px solid #e5e7eb}
