@@ -12,6 +12,8 @@ const flavorWords = [
   "麻辣", "泡菜"
 ];
 
+const specPattern = /\d+(?:\.\d+)?\s?(?:ml|mL|ML|cc|CC|l|L|g|G|kg|KG|公克|公斤|斤|台斤|兩|入|抽|包|罐|瓶|盒|袋|片|枚|pcs|PCS)/g;
+
 type FsValue =
   | { stringValue: string }
   | { integerValue: string }
@@ -47,19 +49,24 @@ function firestoreBase() {
   return `https://firestore.googleapis.com/v1/projects/${getProjectId()}/databases/(default)/documents`;
 }
 
+function cleanNamePrefix(name: string) {
+  return String(name || "").replace(/^\s*[（(][^）)]{1,6}[）)]\s*/g, "").trim();
+}
+
 function extractSpec(name: string) {
   const specs: string[] = [];
-  const re = /\d+(?:\.\d+)?\s?(?:ml|mL|ML|l|L|g|G|kg|KG|公克|公斤|入|抽|包|罐|瓶|盒|袋|片|枚|pcs|PCS)/g;
   let match: RegExpExecArray | null;
-  while ((match = re.exec(name)) !== null) specs.push(match[0].replace(/\s+/g, ""));
+  while ((match = specPattern.exec(name)) !== null) specs.push(match[0].replace(/\s+/g, ""));
+  specPattern.lastIndex = 0;
   return specs.join(" ");
 }
 
 function generateLabelName(name: string) {
-  let base = String(name || "").trim();
+  let base = cleanNamePrefix(name);
   const spec = extractSpec(base);
   if (spec) {
-    base = base.replace(/\d+(?:\.\d+)?\s?(?:ml|mL|ML|l|L|g|G|kg|KG|公克|公斤|入|抽|包|罐|瓶|盒|袋|片|枚|pcs|PCS)/g, "");
+    base = base.replace(specPattern, "");
+    specPattern.lastIndex = 0;
   }
   base = base
     .replace(/[（(].*?[）)]/g, "")
@@ -74,7 +81,7 @@ function generateLabelName(name: string) {
     return { labelName: main ? `${main}－${flavor}` : flavor, spec };
   }
 
-  return { labelName: base.length > 12 ? base.slice(0, 12) : base, spec };
+  return { labelName: base.length > 14 ? base.slice(0, 14) : base, spec };
 }
 
 async function getAccessToken() {
@@ -306,9 +313,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           updatedAt: new Date().toISOString(),
         };
 
-        if (!existing.data.labelName) {
-          changes.labelName = generated.labelName;
-        }
+        if (!existing.data.labelName) changes.labelName = generated.labelName;
 
         if (existing.data.name !== product.name) {
           changes.pendingNameFromPos = product.name;
