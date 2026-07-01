@@ -21,13 +21,6 @@ window.addEventListener('DOMContentLoaded', () => {
     .modal-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}
     .modal-close{background:#f2f4f7;color:#344054}
     #add-product-modal-btn{margin-left:auto}
-    #barcode-scan-modal{position:fixed;inset:0;background:rgba(15,23,42,.7);z-index:10000;display:none;align-items:center;justify-content:center;padding:16px}
-    #barcode-scan-modal.open{display:flex}
-    .scan-box{background:#fff;border-radius:18px;width:min(520px,100%);padding:14px;box-shadow:0 20px 60px rgba(0,0,0,.24)}
-    .scan-box video,#html5-qrcode-reader video{width:100%;border-radius:12px;background:#111;max-height:58vh;object-fit:cover}
-    #html5-qrcode-reader{width:100%}
-    #html5-qrcode-reader__scan_region{border-radius:12px;overflow:hidden}
-    .scan-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
     @media(max-width:720px){
       header h1{font-size:18px} header p{font-size:12px}
       main{padding:10px;gap:10px}.card{border-radius:14px;padding:12px}
@@ -62,15 +55,6 @@ window.addEventListener('DOMContentLoaded', () => {
   `;
   document.head.appendChild(style);
 
-  const loadScript = (src) => new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) return resolve();
-    const script = document.createElement('script');
-    script.src = src;
-    script.onload = resolve;
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
-
   const searchInput = $('search-input');
   if (searchInput && !document.getElementById('product-search-row')) {
     const searchRow = document.createElement('div');
@@ -83,78 +67,6 @@ window.addEventListener('DOMContentLoaded', () => {
     scanBtn.className = 'secondary';
     scanBtn.textContent = '掃條碼';
     searchRow.appendChild(scanBtn);
-
-    const scanModal = document.createElement('div');
-    scanModal.id = 'barcode-scan-modal';
-    scanModal.innerHTML = '<div class="scan-box"><div class="scan-head"><strong>掃描商品條碼</strong><button type="button" id="close-scan-btn" class="modal-close">關閉</button></div><video id="barcode-scan-video" playsinline muted></video><div id="html5-qrcode-reader" style="display:none"></div><p class="muted">將條碼置於畫面中央，辨識後會自動帶入搜尋。</p></div>';
-    document.body.appendChild(scanModal);
-
-    let stream = null;
-    let scanTimer = null;
-    let html5Scanner = null;
-    const stopScan = async () => {
-      scanModal.classList.remove('open');
-      if (scanTimer) clearInterval(scanTimer);
-      scanTimer = null;
-      if (html5Scanner) {
-        try { await html5Scanner.stop(); } catch (_) {}
-        try { html5Scanner.clear(); } catch (_) {}
-        html5Scanner = null;
-      }
-      if (stream) stream.getTracks().forEach((track) => track.stop());
-      stream = null;
-    };
-    const applyBarcode = (code) => {
-      if (!code) return;
-      searchInput.value = code;
-      searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-      stopScan();
-    };
-    const startHtml5QrCode = async () => {
-      const video = document.getElementById('barcode-scan-video');
-      const reader = document.getElementById('html5-qrcode-reader');
-      video.style.display = 'none';
-      reader.style.display = 'block';
-      scanModal.classList.add('open');
-      await loadScript('https://unpkg.com/html5-qrcode/html5-qrcode.min.js');
-      if (!window.Html5Qrcode) throw new Error('html5-qrcode unavailable');
-      html5Scanner = new Html5Qrcode('html5-qrcode-reader');
-      await html5Scanner.start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 260, height: 160 }, aspectRatio: 1.777 },
-        (decodedText) => applyBarcode(decodedText),
-        () => {}
-      );
-    };
-    const startNativeBarcodeDetector = async () => {
-      const video = document.getElementById('barcode-scan-video');
-      const reader = document.getElementById('html5-qrcode-reader');
-      reader.style.display = 'none';
-      video.style.display = 'block';
-      const detector = new BarcodeDetector({ formats: ['code_128','ean_13','ean_8','upc_a','upc_e','code_39','itf'] });
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-      video.srcObject = stream;
-      await video.play();
-      scanModal.classList.add('open');
-      scanTimer = setInterval(async () => {
-        try {
-          const codes = await detector.detect(video);
-          if (codes && codes[0]?.rawValue) applyBarcode(codes[0].rawValue);
-        } catch (_) {}
-      }, 450);
-    };
-    document.getElementById('close-scan-btn').addEventListener('click', stopScan);
-    scanModal.addEventListener('click', (event) => { if (event.target === scanModal) stopScan(); });
-    scanBtn.addEventListener('click', async () => {
-      try {
-        if ('BarcodeDetector' in window) await startNativeBarcodeDetector();
-        else await startHtml5QrCode();
-      } catch (error) {
-        try { await stopScan(); } catch (_) {}
-        const code = prompt('無法啟動相機掃碼，請手動輸入條碼，或確認相機權限後再試。');
-        if (code) applyBarcode(code.trim());
-      }
-    });
   }
 
   const addBtn = document.createElement('button');
