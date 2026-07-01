@@ -1,11 +1,11 @@
 {
-  "name": "supermarket-inventory-prototype",
+  "name": "supermarket-product-label-tool",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
