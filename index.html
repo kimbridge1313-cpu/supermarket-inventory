@@ -3,10 +3,644 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>超市庫存系統</title>
+    <title>商品資料與貨卡列印</title>
+    <style>
+      :root {
+        --bg: #f6f3ee;
+        --card: #ffffff;
+        --ink: #1f2933;
+        --muted: #667085;
+        --line: #e5e7eb;
+        --accent: #315c48;
+        --danger: #b42318;
+        --soft: #eef4ef;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
+        background: var(--bg);
+        color: var(--ink);
+      }
+      header {
+        padding: 22px 18px;
+        background: var(--accent);
+        color: white;
+      }
+      header h1 { margin: 0; font-size: 22px; }
+      header p { margin: 6px 0 0; opacity: .82; font-size: 14px; }
+      main {
+        width: min(1180px, 100%);
+        margin: 0 auto;
+        padding: 18px;
+        display: grid;
+        gap: 16px;
+      }
+      .tabs {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: 4px;
+      }
+      .tab, button {
+        border: 0;
+        border-radius: 12px;
+        padding: 10px 14px;
+        background: white;
+        color: var(--ink);
+        cursor: pointer;
+        font-weight: 700;
+      }
+      .tab.active, button.primary { background: var(--accent); color: white; }
+      button.secondary { background: var(--soft); color: var(--accent); }
+      button.danger { background: #fff1f0; color: var(--danger); }
+      button:disabled { opacity: .45; cursor: not-allowed; }
+      .grid { display: grid; gap: 16px; }
+      .two { grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr); }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 16px;
+        box-shadow: 0 8px 24px rgba(16, 24, 40, .05);
+      }
+      .card h2 { margin: 0 0 12px; font-size: 18px; }
+      .card h3 { margin: 16px 0 8px; font-size: 15px; }
+      .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+      .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+      label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+      input, select, textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 10px 12px;
+        font: inherit;
+        background: white;
+        color: var(--ink);
+      }
+      .wide { grid-column: 1 / -1; }
+      .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 14px; }
+      table { width: 100%; border-collapse: collapse; min-width: 760px; }
+      th, td { padding: 10px; border-bottom: 1px solid var(--line); text-align: left; font-size: 14px; vertical-align: top; }
+      th { background: #fafafa; color: var(--muted); font-size: 12px; }
+      tr:hover td { background: #fbfbf9; }
+      .muted { color: var(--muted); font-size: 13px; }
+      .status { padding: 10px 12px; border-radius: 12px; background: #f9fafb; border: 1px solid var(--line); white-space: pre-wrap; }
+      .hidden { display: none !important; }
+      .preview {
+        width: 240px;
+        min-height: 170px;
+        background: white;
+        border: 1px dashed #98a2b3;
+        border-radius: 8px;
+        padding: 10px;
+        margin: 8px auto;
+        font-family: Arial, "Noto Sans TC", sans-serif;
+      }
+      .preview .store { font-size: 12px; color: #475467; }
+      .preview .name { font-size: 18px; font-weight: 800; margin-top: 8px; line-height: 1.16; }
+      .preview .lang { font-size: 12px; margin-top: 4px; color: #344054; }
+      .preview .spec { font-size: 12px; margin-top: 6px; color: #667085; }
+      .preview .price { font-size: 44px; font-weight: 900; text-align: right; margin-top: 8px; }
+      .preview .barcode { font-size: 11px; border-top: 1px solid #d0d5dd; padding-top: 6px; margin-top: 8px; letter-spacing: 1px; }
+      .pill { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; background: var(--soft); color: var(--accent); font-size: 12px; font-weight: 700; }
+      @media (max-width: 860px) {
+        .two, .form-grid { grid-template-columns: 1fr; }
+        main { padding: 12px; }
+        header { padding: 18px 12px; }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <header>
+      <h1 id="app-title">商品資料與貨卡列印</h1>
+      <p>HTML 單頁工具｜商品主檔｜Google Drive 同步｜飛鵝貨卡列印</p>
+    </header>
+
+    <main>
+      <section class="card" id="auth-card">
+        <h2>登入</h2>
+        <p class="muted">使用 Google 登入後讀寫 Firebase 商品資料。</p>
+        <div class="row">
+          <button class="primary" id="login-btn">Google 登入</button>
+          <button class="secondary hidden" id="logout-btn">登出</button>
+          <span id="user-label" class="muted"></span>
+        </div>
+        <p id="config-warning" class="muted"></p>
+      </section>
+
+      <nav class="tabs">
+        <button class="tab active" data-tab="products">商品資料</button>
+        <button class="tab" data-tab="sync">雲端同步</button>
+        <button class="tab" data-tab="labels">貨卡列印</button>
+        <button class="tab" data-tab="settings">系統設定</button>
+      </nav>
+
+      <section class="grid two tab-panel" id="panel-products">
+        <div class="card">
+          <div class="row" style="justify-content: space-between;">
+            <h2>商品資料</h2>
+            <span class="pill" id="product-count">0 筆</span>
+          </div>
+          <input id="search-input" placeholder="搜尋條碼、中文、越南文、印尼文" />
+          <div class="table-wrap" style="margin-top: 12px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>條碼</th>
+                  <th>品名</th>
+                  <th>多語</th>
+                  <th>售價</th>
+                  <th>規格</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="products-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 id="form-title">新增商品</h2>
+          <div class="form-grid">
+            <label>條碼<input id="f-barcode" /></label>
+            <label>分類<input id="f-category" /></label>
+            <label class="wide">中文商品名稱<input id="f-name" /></label>
+            <label class="wide">越南文商品名稱<input id="f-name-vi" /></label>
+            <label class="wide">印尼文商品名稱<input id="f-name-id" /></label>
+            <label>廠商代號<input id="f-supplier-code" /></label>
+            <label>廠商名稱<input id="f-supplier" /></label>
+            <label>進價<input id="f-cost" type="number" /></label>
+            <label>售價<input id="f-price" type="number" /></label>
+            <label>未稅價<input id="f-untaxed" type="number" /></label>
+            <label class="wide">規格<input id="f-spec" placeholder="例如 600ml、1入、300g" /></label>
+          </div>
+          <div class="row" style="margin-top: 12px;">
+            <button class="primary" id="save-product-btn">儲存商品</button>
+            <button class="secondary" id="clear-form-btn">清空</button>
+            <button class="secondary" id="translate-btn">自動翻譯</button>
+            <button class="danger hidden" id="delete-product-btn">刪除</button>
+          </div>
+          <p class="muted">多語欄位若已人工確認，建議之後在同步規則中保留 reviewed 狀態，避免被覆蓋。</p>
+        </div>
+      </section>
+
+      <section class="grid two tab-panel hidden" id="panel-sync">
+        <div class="card">
+          <h2>Google Drive 最新商品檔同步</h2>
+          <p class="muted">系統會讀取指定資料夾中最後更新的 .htm / .html 商品檔，解析 POS 商品資料後同步到 Firestore。</p>
+          <label>Google Drive Folder ID（可留空，優先使用 Vercel DRIVE_FOLDER_ID）
+            <input id="s-drive-folder" placeholder="資料夾 ID" />
+          </label>
+          <div class="row" style="margin-top: 12px;">
+            <button class="primary" id="sync-btn">執行同步</button>
+            <button class="secondary" id="reload-btn">重新載入商品</button>
+          </div>
+          <h3>同步結果</h3>
+          <div class="status" id="sync-result">尚未同步</div>
+        </div>
+        <div class="card">
+          <h2>同步原則</h2>
+          <ul class="muted">
+            <li>條碼不存在：新增商品，加入需重印貨卡。</li>
+            <li>價格不同：更新價格，加入需重印貨卡。</li>
+            <li>中文名稱不同：不直接覆蓋，寫入待確認欄位。</li>
+            <li>已同步過相同檔案：略過。</li>
+            <li>不處理進貨、退貨、庫存。</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="grid two tab-panel hidden" id="panel-labels">
+        <div class="card">
+          <h2>貨卡預覽</h2>
+          <label>選擇商品
+            <select id="label-product-select"></select>
+          </label>
+          <div class="preview" id="label-preview"></div>
+          <div class="row">
+            <button class="primary" id="print-selected-btn">列印此商品</button>
+            <button class="secondary" id="test-print-btn">測試列印</button>
+          </div>
+          <p class="muted">列印 API 只從 Vercel env 讀飛鵝帳密；前端不保存 user / key。</p>
+        </div>
+        <div class="card">
+          <div class="row" style="justify-content: space-between;">
+            <h2>需重印貨卡</h2>
+            <button class="secondary" id="load-queue-btn">重新整理</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>商品</th><th>價格</th><th>原因</th><th>操作</th></tr></thead>
+              <tbody id="queue-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid two tab-panel hidden" id="panel-settings">
+        <div class="card">
+          <h2>系統設定</h2>
+          <div class="form-grid">
+            <label>門店名稱<input id="s-store-name" /></label>
+            <label>印表機 SN（可留空，優先使用 Vercel FEIE_DEFAULT_SN）<input id="s-printer-sn" /></label>
+            <label><span>顯示中文名</span><select id="s-show-zh"><option value="true">顯示</option><option value="false">隱藏</option></select></label>
+            <label><span>顯示越南文</span><select id="s-show-vi"><option value="true">顯示</option><option value="false">隱藏</option></select></label>
+            <label><span>顯示印尼文</span><select id="s-show-id"><option value="true">顯示</option><option value="false">隱藏</option></select></label>
+            <label><span>顯示條碼</span><select id="s-show-barcode"><option value="true">顯示</option><option value="false">隱藏</option></select></label>
+            <label><span>顯示規格</span><select id="s-show-spec"><option value="true">顯示</option><option value="false">隱藏</option></select></label>
+          </div>
+          <div class="row" style="margin-top: 12px;">
+            <button class="primary" id="save-settings-btn">儲存設定</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Vercel Environment Variables</h2>
+          <p class="muted">GitHub 不放敏感資料。請在 Vercel 設定以下環境變數：</p>
+          <pre class="status">VITE_FIREBASE_API_KEY
+VITE_FIREBASE_AUTH_DOMAIN
+VITE_FIREBASE_PROJECT_ID
+VITE_FIREBASE_STORAGE_BUCKET
+VITE_FIREBASE_MESSAGING_SENDER_ID
+VITE_FIREBASE_APP_ID
+VITE_FIREBASE_MEASUREMENT_ID
+
+FEIE_USER
+FEIE_SECRET
+FEIE_DEFAULT_SN
+
+DRIVE_CLIENT_EMAIL
+DRIVE_SIGNING_KEY
+DRIVE_FOLDER_ID</pre>
+        </div>
+      </section>
+
+      <section class="status" id="global-status">系統尚未初始化</section>
+    </main>
+
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
+      import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-auth.js";
+      import { getFirestore, collection, doc, getDocs, getDoc, addDoc, setDoc, updateDoc, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
+
+      const firebaseConfig = {
+        apiKey: "%VITE_FIREBASE_API_KEY%",
+        authDomain: "%VITE_FIREBASE_AUTH_DOMAIN%",
+        projectId: "%VITE_FIREBASE_PROJECT_ID%",
+        storageBucket: "%VITE_FIREBASE_STORAGE_BUCKET%",
+        messagingSenderId: "%VITE_FIREBASE_MESSAGING_SENDER_ID%",
+        appId: "%VITE_FIREBASE_APP_ID%",
+        measurementId: "%VITE_FIREBASE_MEASUREMENT_ID%"
+      };
+
+      const $ = (id) => document.getElementById(id);
+      const state = {
+        app: null,
+        auth: null,
+        db: null,
+        user: null,
+        products: [],
+        queue: [],
+        selectedProductId: "",
+        editingId: "",
+        settings: {
+          storeName: "",
+          printerSn: "",
+          driveFolderId: "",
+          showNameZh: true,
+          showNameVi: true,
+          showNameId: true,
+          showBarcode: true,
+          showSpec: true
+        }
+      };
+
+      const setStatus = (message) => { $("global-status").textContent = message; };
+      const money = (value) => Number(value || 0).toLocaleString("zh-TW", { maximumFractionDigits: 2 });
+      const boolValue = (id) => $(id).value === "true";
+      const safe = (value) => String(value ?? "").replace(/[<>]/g, "");
+
+      function checkConfig() {
+        const missing = Object.entries(firebaseConfig)
+          .filter(([, value]) => !value || String(value).startsWith("%VITE_"))
+          .map(([key]) => key);
+        if (missing.length) {
+          $("config-warning").textContent = `Firebase env 未完整設定：${missing.join(", ")}`;
+        }
+      }
+
+      function init() {
+        checkConfig();
+        state.app = initializeApp(firebaseConfig);
+        state.auth = getAuth(state.app);
+        state.db = getFirestore(state.app);
+        bindEvents();
+        onAuthStateChanged(state.auth, async (user) => {
+          state.user = user;
+          $("login-btn").classList.toggle("hidden", !!user);
+          $("logout-btn").classList.toggle("hidden", !user);
+          $("user-label").textContent = user ? user.email || user.displayName || "已登入" : "尚未登入";
+          if (user) {
+            await loadSettings();
+            await loadProducts();
+            await loadQueue();
+            setStatus("已載入商品資料");
+          } else {
+            setStatus("請先登入");
+          }
+        });
+      }
+
+      function bindEvents() {
+        $("login-btn").onclick = () => signInWithPopup(state.auth, new GoogleAuthProvider());
+        $("logout-btn").onclick = () => signOut(state.auth);
+        document.querySelectorAll(".tab").forEach((tab) => tab.onclick = () => switchTab(tab.dataset.tab));
+        $("search-input").oninput = renderProducts;
+        $("save-product-btn").onclick = saveProduct;
+        $("clear-form-btn").onclick = clearForm;
+        $("delete-product-btn").onclick = deleteProduct;
+        $("translate-btn").onclick = translateCurrentProduct;
+        $("sync-btn").onclick = syncProducts;
+        $("reload-btn").onclick = async () => { await loadProducts(); await loadQueue(); };
+        $("save-settings-btn").onclick = saveSettings;
+        $("label-product-select").onchange = (event) => { state.selectedProductId = event.target.value; renderPreview(); };
+        $("print-selected-btn").onclick = () => printSelected();
+        $("test-print-btn").onclick = () => printContent("<CB>TEST PRINT</CB><BR>商品貨卡列印測試<BR><CUT>");
+        $("load-queue-btn").onclick = loadQueue;
+      }
+
+      function switchTab(tabName) {
+        document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === tabName));
+        document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.add("hidden"));
+        $(`panel-${tabName}`).classList.remove("hidden");
+        if (tabName === "labels") renderPreview();
+      }
+
+      async function loadSettings() {
+        const snap = await getDoc(doc(state.db, "systemSettings", "main"));
+        if (snap.exists()) state.settings = { ...state.settings, ...snap.data() };
+        $("s-store-name").value = state.settings.storeName || "";
+        $("s-printer-sn").value = state.settings.printerSn || "";
+        $("s-drive-folder").value = state.settings.driveFolderId || "";
+        $("s-show-zh").value = String(state.settings.showNameZh !== false);
+        $("s-show-vi").value = String(state.settings.showNameVi !== false);
+        $("s-show-id").value = String(state.settings.showNameId !== false);
+        $("s-show-barcode").value = String(state.settings.showBarcode !== false);
+        $("s-show-spec").value = String(state.settings.showSpec !== false);
+        $("app-title").textContent = state.settings.storeName ? `${state.settings.storeName}｜商品資料與貨卡列印` : "商品資料與貨卡列印";
+      }
+
+      async function saveSettings() {
+        state.settings = {
+          ...state.settings,
+          storeName: $("s-store-name").value.trim(),
+          printerSn: $("s-printer-sn").value.trim(),
+          driveFolderId: $("s-drive-folder").value.trim(),
+          showNameZh: boolValue("s-show-zh"),
+          showNameVi: boolValue("s-show-vi"),
+          showNameId: boolValue("s-show-id"),
+          showBarcode: boolValue("s-show-barcode"),
+          showSpec: boolValue("s-show-spec"),
+          updatedAt: new Date().toISOString()
+        };
+        await setDoc(doc(state.db, "systemSettings", "main"), state.settings, { merge: true });
+        await loadSettings();
+        renderPreview();
+        setStatus("系統設定已儲存");
+      }
+
+      async function loadProducts() {
+        const q = query(collection(state.db, "products"), orderBy("name"));
+        const snap = await getDocs(q);
+        state.products = snap.docs.map((d) => ({ docId: d.id, ...d.data() }));
+        renderProducts();
+        renderProductSelect();
+      }
+
+      function filteredProducts() {
+        const keyword = $("search-input").value.trim().toLowerCase();
+        if (!keyword) return state.products;
+        return state.products.filter((p) => [p.barcode, p.name, p.nameVi, p.nameId].some((value) => String(value || "").toLowerCase().includes(keyword)));
+      }
+
+      function renderProducts() {
+        const rows = filteredProducts();
+        $("product-count").textContent = `${rows.length} 筆`;
+        $("products-body").innerHTML = rows.map((p) => `
+          <tr>
+            <td>${safe(p.barcode)}</td>
+            <td><strong>${safe(p.name)}</strong><br><span class="muted">${safe(p.category || "未分類")}</span></td>
+            <td><span class="muted">VI ${safe(p.nameVi || "-")}</span><br><span class="muted">ID ${safe(p.nameId || "-")}</span></td>
+            <td>${money(p.price)} 元</td>
+            <td>${safe(p.spec || "-")}</td>
+            <td class="row"><button class="secondary" data-edit="${p.docId}">編輯</button><button class="primary" data-print="${p.docId}">列印</button></td>
+          </tr>
+        `).join("");
+        document.querySelectorAll("[data-edit]").forEach((btn) => btn.onclick = () => editProduct(btn.dataset.edit));
+        document.querySelectorAll("[data-print]").forEach((btn) => { btn.onclick = () => { state.selectedProductId = btn.dataset.print; switchTab("labels"); renderProductSelect(); renderPreview(); }; });
+      }
+
+      function renderProductSelect() {
+        $("label-product-select").innerHTML = state.products.map((p) => `<option value="${p.docId}">${safe(p.name)}｜${safe(p.barcode)}</option>`).join("");
+        if (!state.selectedProductId && state.products[0]) state.selectedProductId = state.products[0].docId;
+        $("label-product-select").value = state.selectedProductId || "";
+      }
+
+      function formProduct() {
+        return {
+          barcode: $("f-barcode").value.trim(),
+          name: $("f-name").value.trim(),
+          nameVi: $("f-name-vi").value.trim(),
+          nameId: $("f-name-id").value.trim(),
+          translationStatus: {
+            vi: $("f-name-vi").value.trim() ? "reviewed" : "empty",
+            id: $("f-name-id").value.trim() ? "reviewed" : "empty"
+          },
+          category: $("f-category").value.trim(),
+          supplierCode: $("f-supplier-code").value.trim(),
+          supplier: $("f-supplier").value.trim(),
+          cost: Number($("f-cost").value || 0),
+          price: Number($("f-price").value || 0),
+          untaxed: Number($("f-untaxed").value || $("f-price").value || 0),
+          spec: $("f-spec").value.trim(),
+          updatedAt: new Date().toISOString()
+        };
+      }
+
+      async function saveProduct() {
+        const product = formProduct();
+        if (!product.barcode || !product.name) return setStatus("條碼與中文商品名稱必填");
+        if (state.editingId) {
+          await updateDoc(doc(state.db, "products", state.editingId), product);
+          setStatus("商品已更新");
+        } else {
+          await addDoc(collection(state.db, "products"), { ...product, stock: 0, createdAt: new Date().toISOString() });
+          setStatus("商品已新增");
+        }
+        clearForm();
+        await loadProducts();
+      }
+
+      function editProduct(id) {
+        const p = state.products.find((item) => item.docId === id);
+        if (!p) return;
+        state.editingId = id;
+        $("form-title").textContent = "修改商品";
+        $("delete-product-btn").classList.remove("hidden");
+        $("f-barcode").value = p.barcode || "";
+        $("f-name").value = p.name || "";
+        $("f-name-vi").value = p.nameVi || "";
+        $("f-name-id").value = p.nameId || "";
+        $("f-category").value = p.category || "";
+        $("f-supplier-code").value = p.supplierCode || "";
+        $("f-supplier").value = p.supplier || "";
+        $("f-cost").value = p.cost || 0;
+        $("f-price").value = p.price || 0;
+        $("f-untaxed").value = p.untaxed || p.price || 0;
+        $("f-spec").value = p.spec || "";
+      }
+
+      function clearForm() {
+        state.editingId = "";
+        $("form-title").textContent = "新增商品";
+        $("delete-product-btn").classList.add("hidden");
+        ["f-barcode", "f-name", "f-name-vi", "f-name-id", "f-category", "f-supplier-code", "f-supplier", "f-cost", "f-price", "f-untaxed", "f-spec"].forEach((id) => $(id).value = "");
+      }
+
+      async function deleteProduct() {
+        if (!state.editingId) return;
+        if (!confirm("確定刪除此商品？")) return;
+        await deleteDoc(doc(state.db, "products", state.editingId));
+        clearForm();
+        await loadProducts();
+        setStatus("商品已刪除");
+      }
+
+      async function translateCurrentProduct() {
+        const name = $("f-name").value.trim();
+        if (!name) return setStatus("請先輸入中文商品名稱");
+        setStatus("翻譯中...");
+        const [vi, id] = await Promise.all([translateProduct(name, "vi"), translateProduct(name, "id")]);
+        $("f-name-vi").value = vi;
+        $("f-name-id").value = id;
+        setStatus("翻譯完成，請人工確認後儲存");
+      }
+
+      async function translateProduct(text, target) {
+        const response = await fetch("/api/translate-product", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, source: "zh-TW", target })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || "Translate failed");
+        return data.text || "";
+      }
+
+      async function syncProducts() {
+        await saveSettings();
+        $("sync-result").textContent = "同步中...";
+        const response = await fetch("/api/sync-products-from-drive", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ folderId: state.settings.driveFolderId || undefined })
+        });
+        const data = await response.json();
+        $("sync-result").textContent = JSON.stringify(data, null, 2);
+        if (data.ok) {
+          await loadProducts();
+          await loadQueue();
+          setStatus("同步完成");
+        } else {
+          setStatus("同步失敗");
+        }
+      }
+
+      function selectedProduct() {
+        return state.products.find((p) => p.docId === state.selectedProductId) || state.products[0];
+      }
+
+      function renderPreview() {
+        const p = selectedProduct();
+        if (!p) {
+          $("label-preview").innerHTML = "<p class='muted'>尚無商品</p>";
+          return;
+        }
+        $("label-preview").innerHTML = `
+          <div class="store">${safe(state.settings.storeName || "門市名稱")}</div>
+          ${state.settings.showNameZh !== false ? `<div class="name">${safe(p.name)}</div>` : ""}
+          ${state.settings.showNameVi !== false && p.nameVi ? `<div class="lang">${safe(p.nameVi)}</div>` : ""}
+          ${state.settings.showNameId !== false && p.nameId ? `<div class="lang">${safe(p.nameId)}</div>` : ""}
+          ${state.settings.showSpec !== false && p.spec ? `<div class="spec">規格：${safe(p.spec)}</div>` : ""}
+          <div class="price">${money(p.price)}<span style="font-size:14px;"> 元</span></div>
+          ${state.settings.showBarcode !== false ? `<div class="barcode">${safe(p.barcode)}</div>` : ""}
+        `;
+      }
+
+      function barcodeTag(barcode) {
+        const value = String(barcode || "");
+        if (/^\d+$/.test(value) && value.length <= 22) return `<BC128_C>${value}</BC128_C>`;
+        if (/^[A-Z0-9]+$/.test(value) && value.length <= 14) return `<BC128_A>${value}</BC128_A>`;
+        if (value.length <= 14) return `<BC128_B>${value}</BC128_B>`;
+        return value;
+      }
+
+      function buildPrintContent(p) {
+        const lines = [];
+        if (state.settings.showBarcode !== false && p.barcode) lines.push(barcodeTag(p.barcode));
+        if (state.settings.storeName) lines.push(safe(state.settings.storeName));
+        if (state.settings.showNameZh !== false && p.name) lines.push(`<B>${safe(p.name)}</B>`);
+        if (state.settings.showNameVi !== false && p.nameVi) lines.push(safe(p.nameVi));
+        if (state.settings.showNameId !== false && p.nameId) lines.push(safe(p.nameId));
+        if (state.settings.showSpec !== false && p.spec) lines.push(`規格：${safe(p.spec)}`);
+        lines.push(`<RIGHT><B><B>${money(p.price)}</B></B>元</RIGHT>`);
+        return `${lines.join("<BR>")}<BR><CUT>`;
+      }
+
+      async function printSelected() {
+        const p = selectedProduct();
+        if (!p) return;
+        await printContent(buildPrintContent(p));
+      }
+
+      async function printContent(content, sn = state.settings.printerSn) {
+        const response = await fetch("/api/feie/print-receipt", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sn, content, times: 1 })
+        });
+        const data = await response.json();
+        setStatus(data.message || (data.ok ? "列印已送出" : "列印失敗"));
+      }
+
+      async function loadQueue() {
+        const snap = await getDocs(collection(state.db, "labelPrintQueue"));
+        state.queue = snap.docs.map((d) => ({ docId: d.id, ...d.data() })).filter((item) => item.status !== "printed");
+        renderQueue();
+      }
+
+      function renderQueue() {
+        $("queue-body").innerHTML = state.queue.map((item) => `
+          <tr>
+            <td><strong>${safe(item.name)}</strong><br><span class="muted">${safe(item.barcode)}</span></td>
+            <td>${money(item.oldPrice)} → ${money(item.newPrice)}</td>
+            <td>${safe(item.reason)}</td>
+            <td><button class="primary" data-queue-print="${item.docId}">列印</button></td>
+          </tr>
+        `).join("") || `<tr><td colspan="4" class="muted">目前沒有待重印貨卡</td></tr>`;
+        document.querySelectorAll("[data-queue-print]").forEach((btn) => btn.onclick = () => printQueueItem(btn.dataset.queuePrint));
+      }
+
+      async function printQueueItem(id) {
+        const item = state.queue.find((q) => q.docId === id);
+        const product = state.products.find((p) => p.barcode === item?.barcode);
+        if (!product) return setStatus("找不到對應商品");
+        await printContent(buildPrintContent(product));
+        await updateDoc(doc(state.db, "labelPrintQueue", id), { status: "printed", printedAt: new Date().toISOString() });
+        await loadQueue();
+      }
+
+      init();
+    </script>
   </body>
 </html>
