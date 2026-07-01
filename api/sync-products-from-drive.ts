@@ -34,6 +34,12 @@ type ProductRow = {
   spec: string;
 };
 
+type FsProduct = {
+  url: string;
+  id: string;
+  data: Record<string, any>;
+};
+
 const b64url = (input: string | Buffer) =>
   Buffer.from(input).toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 
@@ -213,14 +219,26 @@ async function saveSyncState(token: string, file: any) {
   });
 }
 
+function docToProduct(document: any): FsProduct {
+  const id = String(document.name || "").split("/").pop() || "";
+  return { url: `https://firestore.googleapis.com/v1/${document.name}`, id, data: Object.fromEntries(Object.entries(document.fields || {}).map(([key, val]) => [key, jsValue(val)])) };
+}
+
 async function findProduct(token: string, barcode: string) {
   const data = await fsFetch(token, `${firestoreBase()}:runQuery`, {
     method: "POST",
     body: JSON.stringify({ structuredQuery: { from: [{ collectionId: "products" }], where: { fieldFilter: { field: { fieldPath: "barcode" }, op: "EQUAL", value: { stringValue: barcode } } }, limit: 1 } }),
   });
   const document = data.find((row: any) => row.document)?.document;
-  if (!document) return null;
-  return { url: `https://firestore.googleapis.com/v1/${document.name}`, data: Object.fromEntries(Object.entries(document.fields || {}).map(([key, val]) => [key, jsValue(val)])) };
+  return document ? docToProduct(document) : null;
+}
+
+async function findProductsByName(token: string, name: string) {
+  const data = await fsFetch(token, `${firestoreBase()}:runQuery`, {
+    method: "POST",
+    body: JSON.stringify({ structuredQuery: { from: [{ collectionId: "products" }], where: { fieldFilter: { field: { fieldPath: "name" }, op: "EQUAL", value: { stringValue: name } } }, limit: 10 } }),
+  });
+  return data.filter((row: any) => row.document).map((row: any) => docToProduct(row.document));
 }
 
 function productCreateFields(product: ProductRow) {
@@ -293,9 +311,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       try {
         const existing = await findProduct(token, product.barcode);
         const generated = generateLabelName(product.name);
+
         if (!existing) {
+          const sameNameProducts = await findProductsByName(token, product.name);
           await createProduct(token, product);
           await createRecord(token, "labelPrintQueue", { barcode: product.barcode, name: product.name, labelName: generated.labelName, oldPrice: 0, newPrice: product.price, reason: "new_product", status: "pending", createdAt: new Date().toISOString() });
+
+          if (sameNameProducts.length) {
+            reviewCount += 1;
+            await createRecord(token, "productReviewQueue", {
+              type: "same_name_new_barcode",
+              status: "pending",
+              name: product.name,
+              newBarcode: product.barcode,
+              newPrice: product.price,
+              possibleOldProducts: sameNameProducts.map((match) => ({ docId: match.id, barcode: match.data.barcode || "", price: Number(match.data.price || 0), labelName: match.data.labelName || "" })),
+              message: "新條碼商品與既有商品名稱完全相同，請確認是否為商品換條碼。",
+              createdAt: new Date().toISOString(),
+            });
+          }
+
           createdCount += 1;
           continue;
         }
