@@ -19,6 +19,46 @@ window.addEventListener('DOMContentLoaded', () => {
     return big5.includes('GSNO') || big5.includes('GSNAME') ? big5 : utf8;
   };
 
+  const stripHtml = (html) => String(html || '')
+    .replace(/<br\s*\/?\s*>/gi, ' ')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const toNumber = (value) => {
+    const parsed = Number(String(value || '').replace(/,/g, '').trim());
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const parsePosHtmlInBrowser = (html) => {
+    const rows = [...String(html || '').matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map((row) =>
+      [...row[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => stripHtml(cell[1]))
+    );
+    const headerIndex = rows.findIndex((row) => row.includes('GSNO') && row.some((cell) => cell.includes('GSNAME')));
+    if (headerIndex < 0) throw new Error('Invalid POS product file: missing GSNO / GSNAME header row');
+    const headers = rows[headerIndex];
+    const col = (name) => headers.findIndex((header) => header === name);
+    const get = (row, name) => {
+      const index = col(name);
+      return index >= 0 ? row[index] || '' : '';
+    };
+    return rows.slice(headerIndex + 1).map((row) => ({
+      barcode: get(row, 'GSNOLINK') || get(row, 'GSNO'),
+      name: get(row, 'GSNAME'),
+      category: get(row, 'CSNAME') || get(row, 'GSTYPE'),
+      supplierCode: get(row, 'SPNO1') || get(row, 'SPNO'),
+      supplier: get(row, 'SPNAME') || get(row, 'SPNO1') || get(row, 'SPNO'),
+      cost: toNumber(get(row, 'PRCHLPRICE') || get(row, 'LPRICE')),
+      price: toNumber(get(row, 'SALEPRICE0') || get(row, 'SALEPRICE1')),
+      untaxed: toNumber(get(row, 'TAXPRICE')),
+      spec: get(row, 'GSSPEC') || get(row, 'SPEC') || ''
+    })).filter((product) => product.barcode && product.name);
+  };
+
   const emptySummary = (mode) => ({
     mode,
     createdCount: 0,
@@ -96,35 +136,34 @@ window.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const batchSize = 200;
-    let cursor = 0;
-    let totalRows = 0;
-    const summary = emptySummary('initial_upload');
+    const batchSize = 120;
+    const summary = emptySummary('initial_upload_rows');
 
     try {
       if (syncBtn) syncBtn.disabled = true;
       if (uploadBtn) uploadBtn.disabled = true;
-      if (resultEl) resultEl.textContent = `讀取檔案中：${file.name}`;
+      if (resultEl) resultEl.textContent = `讀取並解析檔案中：${file.name}`;
       const html = await decodePosFile(file);
       if (!html || (!html.includes('GSNO') && !html.includes('GSNAME'))) throw new Error('檔案內容不像 POS 商品 HTM，找不到 GSNO / GSNAME 欄位');
+      const products = parsePosHtmlInBrowser(html);
+      if (!products.length) throw new Error('沒有解析到可匯入的商品資料');
+      const totalRows = products.length;
 
-      while (true) {
-        const response = await fetch('/api/import-products-upload', {
+      for (let cursor = 0; cursor < totalRows; cursor += batchSize) {
+        const batch = products.slice(cursor, cursor + batchSize);
+        const response = await fetch('/api/import-products-rows', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ html, cursor, batchSize, fileName: file.name })
+          body: JSON.stringify({ products: batch, cursor, totalRows, fileName: file.name })
         });
         const data = await readJsonResponse(response);
         if (!response.ok || !data.ok) throw new Error(data.message || '初始匯入失敗');
-        totalRows = data.totalRows || totalRows;
         mergeSummary(summary, data);
-        const done = Math.min(data.nextCursor || totalRows, totalRows || data.nextCursor || 0);
-        if (resultEl) resultEl.textContent = JSON.stringify({ ok: true, mode: 'initial_upload', fileName: file.name, progress: totalRows ? `${done}/${totalRows}` : `${done}`, currentBatch: data, summary }, null, 2);
-        if (!data.hasMore) break;
-        cursor = data.nextCursor || cursor + batchSize;
+        const done = Math.min(cursor + batch.length, totalRows);
+        if (resultEl) resultEl.textContent = JSON.stringify({ ok: true, mode: 'initial_upload_rows', fileName: file.name, progress: `${done}/${totalRows}`, currentBatch: data, summary }, null, 2);
       }
 
-      if (resultEl) resultEl.textContent = JSON.stringify({ ok: true, mode: 'initial_upload', status: 'complete', fileName: file.name, totalRows, summary }, null, 2);
+      if (resultEl) resultEl.textContent = JSON.stringify({ ok: true, mode: 'initial_upload_rows', status: 'complete', fileName: file.name, totalRows, summary }, null, 2);
       if (reloadBtn) reloadBtn.click();
       await loadSuppliers();
     } catch (error) {
@@ -169,7 +208,7 @@ window.addEventListener('DOMContentLoaded', () => {
     uploadBlock.style.marginTop = '12px';
     uploadBlock.innerHTML = `
       <strong>初始資料匯入</strong>
-      <p class="muted" style="margin:6px 0 10px">第一次建檔請上傳 POS 匯出的 .HTM / .HTML 商品檔。此流程會建立商品與廠商，不會大量建立重印貨卡。</p>
+      <p class="muted" style="margin:6px 0 10px">第一次建檔請上傳 POS 匯出的 .HTM / .HTML 商品檔。檔案會先在瀏覽器解析，再分批送出商品資料，避免檔案過大。</p>
       <input id="initial-upload-file" type="file" accept=".htm,.html,text/html" />
       <div class="row" style="margin-top:10px"><button type="button" class="primary" id="initial-upload-btn">上傳並初始匯入</button></div>
     `;
