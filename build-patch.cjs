@@ -18,7 +18,7 @@ function patchFile(file) {
       'async function syncProducts(){try{await saveSettings();$("sync-result").textContent="同步中...";const r=await fetch("/api/sync-products-from-drive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({folderId:state.settings.driveFolderId||undefined})});const d=await r.json();$("sync-result").textContent=JSON.stringify(d,null,2);if(!r.ok||!d.ok)throw new Error(d.message||"同步失敗");await reloadAll()}catch(e){$("sync-result").textContent=`同步失敗：${errorMessage(e)}`;setStatus("同步失敗","error")}}',
       'async function syncProducts(){try{$("sync-result").textContent="請使用初始匯入或同步最新商品檔按鈕"}catch(e){$("sync-result").textContent=`同步失敗：${errorMessage(e)}`;setStatus("同步失敗","error")}}'
     );
-    text = text.replace('</body>', '<script src="/barcode-scan-fix.js?v=stable-20260701d"></script><script src="/modal-ui-patch.js?v=stable-20260701d"></script><script src="/cloud-sync-patch.js?v=stable-20260701d"></script></body>');
+    text = text.replace('</body>', '<script src="/barcode-scan-fix.js?v=stable-20260701e"></script><script src="/modal-ui-patch.js?v=stable-20260701e"></script><script src="/cloud-sync-patch.js?v=stable-20260701e"></script></body>');
   }
   fs.writeFileSync(file, text);
 }
