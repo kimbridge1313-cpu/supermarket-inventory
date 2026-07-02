@@ -186,20 +186,27 @@ window.addEventListener('DOMContentLoaded', () => {
   const loadSuppliers = async () => {
     const body = $('suppliers-body');
     const count = $('suppliers-count');
+    const input = $('supplier-search-input');
+    const q = input?.value?.trim() || '';
     if (!body) return;
+    if (!q) {
+      body.innerHTML = '<tr><td colspan="3" class="muted">請先輸入廠商代號或廠商名稱。</td></tr>';
+      if (count) count.textContent = '等待搜尋';
+      return;
+    }
     try {
-      body.innerHTML = '<tr><td colspan="3" class="muted">讀取廠商資料中...</td></tr>';
-      const response = await fetch('/api/list-suppliers');
+      body.innerHTML = '<tr><td colspan="3" class="muted">查詢廠商資料中...</td></tr>';
+      const response = await fetch(`/api/list-suppliers?q=${encodeURIComponent(q)}&limit=20`);
       const data = await readJsonResponse(response);
       if (!response.ok || !data.ok) throw new Error(data.message || '讀取廠商失敗');
-      if (count) count.textContent = `${data.count || 0} 筆`;
+      if (count) count.textContent = `查詢 ${data.count || 0} 筆`;
       body.innerHTML = (data.suppliers || []).map((supplier) => `
         <tr>
           <td>${supplier.code || ''}</td>
           <td>${supplier.name || ''}</td>
           <td>${Number(supplier.productCount || 0).toLocaleString('zh-TW')}</td>
         </tr>
-      `).join('') || '<tr><td colspan="3" class="muted">尚無廠商資料</td></tr>';
+      `).join('') || '<tr><td colspan="3" class="muted">查無廠商資料</td></tr>';
     } catch (error) {
       body.innerHTML = `<tr><td colspan="3" class="muted">讀取廠商失敗：${error?.message || error}</td></tr>`;
     }
@@ -226,10 +233,10 @@ window.addEventListener('DOMContentLoaded', () => {
     const supplierCard = document.createElement('div');
     supplierCard.className = 'card';
     supplierCard.innerHTML = `
-      <div class="row" style="justify-content:space-between"><h2>廠商資料</h2><span class="pill" id="suppliers-count">手動讀取</span></div>
-      <p class="muted">由初始匯入或日常同步自動建立。為避免 Firestore 讀取數暴增，不會自動讀取。</p>
-      <div class="table-wrap"><table><thead><tr><th>廠商代號</th><th>廠商名稱</th><th>商品數</th></tr></thead><tbody id="suppliers-body"><tr><td colspan="3" class="muted">按「重新整理廠商」後讀取</td></tr></tbody></table></div>
-      <div class="row" style="margin-top:10px"><button type="button" class="secondary" id="reload-suppliers-btn">重新整理廠商</button></div>
+      <div class="row" style="justify-content:space-between"><h2>廠商資料</h2><span class="pill" id="suppliers-count">等待搜尋</span></div>
+      <p class="muted">輸入廠商代號或廠商名稱後才查詢，每次最多讀取 20 筆。</p>
+      <div class="row" style="margin-bottom:10px"><input id="supplier-search-input" placeholder="搜尋廠商代號或廠商名稱" /><button type="button" class="secondary" id="reload-suppliers-btn">搜尋廠商</button></div>
+      <div class="table-wrap"><table><thead><tr><th>廠商代號</th><th>廠商名稱</th><th>商品數</th></tr></thead><tbody id="suppliers-body"><tr><td colspan="3" class="muted">請先輸入關鍵字搜尋</td></tr></tbody></table></div>
     `;
     panel.appendChild(supplierCard);
 
@@ -250,6 +257,9 @@ window.addEventListener('DOMContentLoaded', () => {
     $('reload-suppliers-btn')?.addEventListener('click', (event) => {
       event.preventDefault();
       loadSuppliers();
+    });
+    $('supplier-search-input')?.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') loadSuppliers();
     });
   };
 
