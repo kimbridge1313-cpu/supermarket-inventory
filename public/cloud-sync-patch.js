@@ -1,6 +1,8 @@
 window.addEventListener('DOMContentLoaded', () => {
   const $ = (id) => document.getElementById(id);
 
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
   const readJsonResponse = async (response) => {
     const raw = await response.text();
     try {
@@ -59,6 +61,16 @@ window.addEventListener('DOMContentLoaded', () => {
     })).filter((product) => product.barcode && product.name);
   };
 
+  const countSuppliers = (products) => {
+    const counts = {};
+    products.forEach((product) => {
+      const key = String(product.supplierCode || product.supplier || '').trim();
+      if (!key) return;
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return counts;
+  };
+
   const emptySummary = (mode) => ({
     mode,
     createdCount: 0,
@@ -111,6 +123,7 @@ window.addEventListener('DOMContentLoaded', () => {
         if (resultEl) resultEl.textContent = JSON.stringify({ ok: true, mode: 'daily', progress: totalRows ? `${done}/${totalRows}` : `${done}`, currentBatch: data, summary }, null, 2);
         if (!data.hasMore) break;
         cursor = data.nextCursor || cursor + batchSize;
+        await sleep(700);
       }
 
       if (resultEl) resultEl.textContent = JSON.stringify({ ok: true, mode: 'daily', status: 'complete', totalRows, summary }, null, 2);
@@ -136,8 +149,8 @@ window.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const batchSize = 120;
-    const summary = emptySummary('initial_upload_rows');
+    const batchSize = 60;
+    const summary = emptySummary('initial_upload_rows_fast');
 
     try {
       if (syncBtn) syncBtn.disabled = true;
@@ -147,6 +160,7 @@ window.addEventListener('DOMContentLoaded', () => {
       if (!html || (!html.includes('GSNO') && !html.includes('GSNAME'))) throw new Error('檔案內容不像 POS 商品 HTM，找不到 GSNO / GSNAME 欄位');
       const products = parsePosHtmlInBrowser(html);
       if (!products.length) throw new Error('沒有解析到可匯入的商品資料');
+      const supplierCounts = countSuppliers(products);
       const totalRows = products.length;
 
       for (let cursor = 0; cursor < totalRows; cursor += batchSize) {
@@ -154,16 +168,17 @@ window.addEventListener('DOMContentLoaded', () => {
         const response = await fetch('/api/import-products-rows', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ products: batch, cursor, totalRows, fileName: file.name })
+          body: JSON.stringify({ products: batch, cursor, totalRows, fileName: file.name, supplierCounts })
         });
         const data = await readJsonResponse(response);
         if (!response.ok || !data.ok) throw new Error(data.message || '初始匯入失敗');
         mergeSummary(summary, data);
         const done = Math.min(cursor + batch.length, totalRows);
-        if (resultEl) resultEl.textContent = JSON.stringify({ ok: true, mode: 'initial_upload_rows', fileName: file.name, progress: `${done}/${totalRows}`, currentBatch: data, summary }, null, 2);
+        if (resultEl) resultEl.textContent = JSON.stringify({ ok: true, mode: 'initial_upload_rows_fast', fileName: file.name, progress: `${done}/${totalRows}`, currentBatch: data, summary }, null, 2);
+        await sleep(900);
       }
 
-      if (resultEl) resultEl.textContent = JSON.stringify({ ok: true, mode: 'initial_upload_rows', status: 'complete', fileName: file.name, totalRows, summary }, null, 2);
+      if (resultEl) resultEl.textContent = JSON.stringify({ ok: true, mode: 'initial_upload_rows_fast', status: 'complete', fileName: file.name, totalRows, summary }, null, 2);
       if (reloadBtn) reloadBtn.click();
       await loadSuppliers();
     } catch (error) {
