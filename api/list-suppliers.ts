@@ -40,27 +40,52 @@ function jsValue(value: any): any {
   return undefined;
 }
 
+function normalizeSearch(text: string) {
+  return String(text || "").toLowerCase().replace(/[\s\-－_()（）\[\]【】.,，、/\\]+/g, "").trim();
+}
+
+function supplierDoc(document: any) {
+  return {
+    id: String(document.name || "").split("/").pop() || "",
+    ...Object.fromEntries(Object.entries(document.fields || {}).map(([key, val]) => [key, jsValue(val)]))
+  };
+}
+
+async function runSupplierKeywordQuery(token: string, keyword: string, maxResults: number) {
+  const body = {
+    structuredQuery: {
+      from: [{ collectionId: "suppliers" }],
+      where: {
+        fieldFilter: {
+          field: { fieldPath: "searchKeywords" },
+          op: "ARRAY_CONTAINS",
+          value: { stringValue: keyword }
+        }
+      },
+      limit: maxResults
+    }
+  };
+  const response = await fetch(`${firestoreBase()}:runQuery`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data: any = await readJsonSafe(response, "Firestore supplier search");
+  if (!response.ok) throw new Error(data.error?.message || data.rawText || "Unable to search suppliers");
+  return (Array.isArray(data) ? data : []).filter((row: any) => row.document).map((row: any) => supplierDoc(row.document));
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") return res.status(405).json({ ok: false, message: "Method not allowed" });
   try {
+    const q = normalizeSearch(String(req.query.q || ""));
+    const maxResults = Math.min(20, Math.max(1, Number(req.query.limit || 20)));
+    if (!q) return res.status(200).json({ ok: true, suppliers: [], count: 0, message: "請輸入廠商代號或廠商名稱再查詢" });
     const token = await getAccessToken();
-    const suppliers: any[] = [];
-    let pageToken = "";
-    do {
-      const params = new URLSearchParams({ pageSize: "1000" });
-      if (pageToken) params.set("pageToken", pageToken);
-      const response = await fetch(`${firestoreBase()}/suppliers?${params}`, { headers: { Authorization: `Bearer ${token}` } });
-      const data: any = await readJsonSafe(response, "Firestore suppliers");
-      if (!response.ok) throw new Error(data.error?.message || data.rawText || "Unable to list suppliers");
-      suppliers.push(...(data.documents || []).map((document: any) => ({
-        id: String(document.name || "").split("/").pop() || "",
-        ...Object.fromEntries(Object.entries(document.fields || {}).map(([key, val]) => [key, jsValue(val)]))
-      })));
-      pageToken = data.nextPageToken || "";
-    } while (pageToken);
+    const suppliers = await runSupplierKeywordQuery(token, q, maxResults);
     suppliers.sort((a, b) => String(a.code || a.name || "").localeCompare(String(b.code || b.name || ""), "zh-Hant"));
-    return res.status(200).json({ ok: true, suppliers, count: suppliers.length });
+    return res.status(200).json({ ok: true, suppliers, count: suppliers.length, q });
   } catch (error) {
-    return res.status(500).json({ ok: false, message: error instanceof Error ? error.message : "Unable to list suppliers" });
+    return res.status(500).json({ ok: false, message: error instanceof Error ? error.message : "Unable to search suppliers" });
   }
 }
