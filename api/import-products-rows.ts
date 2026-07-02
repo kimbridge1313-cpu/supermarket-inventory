@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 type ProductRow = { barcode: string; name: string; category?: string; supplierCode?: string; supplier?: string; cost?: number; price?: number; untaxed?: number; spec?: string };
-type FsValue = { stringValue: string } | { integerValue: string } | { doubleValue: number } | { booleanValue: boolean } | { nullValue: null } | { mapValue: { fields: Record<string, FsValue> } };
+type FsValue = { stringValue: string } | { integerValue: string } | { doubleValue: number } | { booleanValue: boolean } | { nullValue: null } | { mapValue: { fields: Record<string, FsValue> } } | { arrayValue: { values: FsValue[] } };
 
 const specPattern = /\d+(?:\.\d+)?\s?(?:ml|mL|ML|cc|CC|l|L|g|G|kg|KG|公克|公斤|斤|台斤|兩|入|抽|包|罐|瓶|盒|袋|片|枚|pcs|PCS)/g;
 const flavorWords = ["巧克力", "牛奶", "草莓", "起司", "海苔", "原味", "辣味", "甜辣", "紅燒牛肉", "蔥燒牛肉", "豚骨", "咖哩", "檸檬", "水蜜桃", "葡萄", "蘋果", "芒果", "鳳梨", "蜂蜜", "抹茶", "焙茶", "奶茶", "黑糖", "焦糖", "香草", "咖啡", "可可", "鹽味", "海鹽", "蒜香", "麻辣", "泡菜"];
@@ -38,6 +38,7 @@ async function getAccessToken() {
 
 function fsValue(value: any): FsValue {
   if (value === null || value === undefined) return { nullValue: null };
+  if (Array.isArray(value)) return { arrayValue: { values: value.slice(0, 180).map((item) => fsValue(item)) } };
   if (typeof value === "boolean") return { booleanValue: value };
   if (typeof value === "number") return Number.isInteger(value) ? { integerValue: String(value) } : { doubleValue: value };
   if (typeof value === "object") return { mapValue: { fields: Object.fromEntries(Object.entries(value).map(([key, val]) => [key, fsValue(val)])) } };
@@ -56,13 +57,32 @@ function extractSpec(name: string) { const specs: string[] = []; let match: RegE
 function generateLabelName(name: string) { let base = cleanNamePrefix(name); const spec = extractSpec(base); if (spec) { base = base.replace(specPattern, ""); specPattern.lastIndex = 0; } base = base.replace(/[（(].*?[）)]/g, "").replace(/口味/g, "").replace(/袋裝|盒裝|罐裝|瓶裝|家庭號|補充包|經濟包/g, "").replace(/\s+/g, "").trim(); const flavor = flavorWords.find((word) => base.includes(word)); if (flavor) { const main = base.replace(flavor, "").replace(/[－\-—_]/g, "").trim(); return { labelName: main ? `${main}－${flavor}` : flavor, spec }; } return { labelName: base.length > 14 ? base.slice(0, 14) : base, spec }; }
 function docIdFromValue(value: string) { return encodeURIComponent(String(value || "").trim()).replace(/\./g, "%2E").slice(0, 900) || `empty-${Date.now()}`; }
 function supplierKey(product: ProductRow) { return String(product.supplierCode || product.supplier || "").trim(); }
+function normalizeSearch(text: string) { return String(text || "").toLowerCase().replace(/[\s\-－_()（）\[\]【】.,，、/\\]+/g, "").trim(); }
+function keywordsFromText(...values: string[]) {
+  const set = new Set<string>();
+  for (const value of values) {
+    const clean = normalizeSearch(value);
+    if (!clean) continue;
+    set.add(clean);
+    if (/^[a-z0-9]+$/.test(clean)) {
+      for (let len = 2; len <= Math.min(8, clean.length); len++) set.add(clean.slice(0, len));
+    }
+    const chars = [...clean];
+    for (let n = 1; n <= 4; n++) {
+      for (let i = 0; i <= chars.length - n; i++) set.add(chars.slice(i, i + n).join(""));
+    }
+  }
+  return [...set].filter(Boolean).slice(0, 180);
+}
 
 function productFields(product: ProductRow) {
   const generated = generateLabelName(product.name || "");
+  const labelName = generated.labelName;
   return {
     barcode: product.barcode,
     name: product.name,
-    labelName: generated.labelName,
+    labelName,
+    searchKeywords: keywordsFromText(product.barcode, product.name || "", labelName, product.category || "", product.supplier || "", product.supplierCode || "", product.spec || ""),
     nameVi: "",
     nameId: "",
     translationStatus: { vi: "empty", id: "empty" },
@@ -89,9 +109,12 @@ async function upsertSupplier(token: string, product: ProductRow, supplierCounts
   const key = supplierKey(product);
   if (!key) return false;
   const docId = docIdFromValue(key);
+  const name = product.supplier || product.supplierCode || key;
+  const code = product.supplierCode || key;
   const fields = {
-    code: product.supplierCode || key,
-    name: product.supplier || product.supplierCode || key,
+    code,
+    name,
+    searchKeywords: keywordsFromText(code, name),
     source: "upload_rows",
     productCount: Number(supplierCounts[key] || 0),
     updatedAt: new Date().toISOString()
