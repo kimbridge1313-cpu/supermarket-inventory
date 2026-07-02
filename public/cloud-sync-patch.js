@@ -93,7 +93,6 @@ window.addEventListener('DOMContentLoaded', () => {
     const resultEl = $('sync-result');
     const syncBtn = $('sync-btn');
     const uploadBtn = $('initial-upload-btn');
-    const reloadBtn = $('reload-btn');
     const folderId = $('s-drive-folder')?.value?.trim() || undefined;
     const batchSize = 150;
     let cursor = 0;
@@ -126,9 +125,7 @@ window.addEventListener('DOMContentLoaded', () => {
         await sleep(700);
       }
 
-      if (resultEl) resultEl.textContent = JSON.stringify({ ok: true, mode: 'daily', status: 'complete', totalRows, summary }, null, 2);
-      if (reloadBtn) reloadBtn.click();
-      await loadSuppliers();
+      if (resultEl) resultEl.textContent = JSON.stringify({ ok: true, mode: 'daily', status: 'complete', totalRows, summary, note: '已完成同步。為避免讀取數暴增，未自動重新載入商品與廠商。需要查看時再手動重新整理。' }, null, 2);
     } catch (error) {
       if (resultEl) resultEl.textContent = `同步失敗：${error?.message || error}`;
     } finally {
@@ -143,7 +140,6 @@ window.addEventListener('DOMContentLoaded', () => {
     const resultEl = $('sync-result');
     const syncBtn = $('sync-btn');
     const uploadBtn = $('initial-upload-btn');
-    const reloadBtn = $('reload-btn');
     if (!file) {
       if (resultEl) resultEl.textContent = '請先選擇 POS 匯出的 .HTM / .HTML 檔案';
       return;
@@ -178,9 +174,7 @@ window.addEventListener('DOMContentLoaded', () => {
         await sleep(900);
       }
 
-      if (resultEl) resultEl.textContent = JSON.stringify({ ok: true, mode: 'initial_upload_rows_fast', status: 'complete', fileName: file.name, totalRows, summary }, null, 2);
-      if (reloadBtn) reloadBtn.click();
-      await loadSuppliers();
+      if (resultEl) resultEl.textContent = JSON.stringify({ ok: true, mode: 'initial_upload_rows_fast', status: 'complete', fileName: file.name, totalRows, summary, note: '已完成匯入。為避免讀取數暴增，未自動重新載入商品與廠商。需要查看時再手動重新整理。' }, null, 2);
     } catch (error) {
       if (resultEl) resultEl.textContent = `初始匯入失敗：${error?.message || error}`;
     } finally {
@@ -232,9 +226,9 @@ window.addEventListener('DOMContentLoaded', () => {
     const supplierCard = document.createElement('div');
     supplierCard.className = 'card';
     supplierCard.innerHTML = `
-      <div class="row" style="justify-content:space-between"><h2>廠商資料</h2><span class="pill" id="suppliers-count">0 筆</span></div>
-      <p class="muted">由初始匯入或日常同步自動建立。</p>
-      <div class="table-wrap"><table><thead><tr><th>廠商代號</th><th>廠商名稱</th><th>商品數</th></tr></thead><tbody id="suppliers-body"><tr><td colspan="3" class="muted">尚未讀取</td></tr></tbody></table></div>
+      <div class="row" style="justify-content:space-between"><h2>廠商資料</h2><span class="pill" id="suppliers-count">手動讀取</span></div>
+      <p class="muted">由初始匯入或日常同步自動建立。為避免 Firestore 讀取數暴增，不會自動讀取。</p>
+      <div class="table-wrap"><table><thead><tr><th>廠商代號</th><th>廠商名稱</th><th>商品數</th></tr></thead><tbody id="suppliers-body"><tr><td colspan="3" class="muted">按「重新整理廠商」後讀取</td></tr></tbody></table></div>
       <div class="row" style="margin-top:10px"><button type="button" class="secondary" id="reload-suppliers-btn">重新整理廠商</button></div>
     `;
     panel.appendChild(supplierCard);
@@ -257,8 +251,6 @@ window.addEventListener('DOMContentLoaded', () => {
       event.preventDefault();
       loadSuppliers();
     });
-
-    loadSuppliers();
   };
 
   setup();
