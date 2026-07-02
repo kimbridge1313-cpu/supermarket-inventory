@@ -4,6 +4,8 @@ import crypto from "node:crypto";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const DRIVE_API = "https://www.googleapis.com/drive/v3";
 const ALLOWED_EXTENSIONS = [".htm", ".html"];
+const DEFAULT_BATCH_SIZE = 150;
+const MAX_BATCH_SIZE = 300;
 
 const flavorWords = [
   "巧克力", "牛奶", "草莓", "起司", "海苔", "原味", "辣味", "甜辣", "紅燒牛肉", "蔥燒牛肉",
@@ -20,7 +22,8 @@ type FsValue =
   | { doubleValue: number }
   | { booleanValue: boolean }
   | { nullValue: null }
-  | { mapValue: { fields: Record<string, FsValue> } };
+  | { mapValue: { fields: Record<string, FsValue> } }
+  | { arrayValue: { values: FsValue[] } };
 
 type ProductRow = {
   barcode: string;
@@ -34,7 +37,7 @@ type ProductRow = {
   spec: string;
 };
 
-type FsProduct = {
+type FsDoc = {
   url: string;
   id: string;
   data: Record<string, any>;
@@ -195,6 +198,7 @@ function parsePosHtml(html: string): ProductRow[] {
 
 function fsValue(value: any): FsValue {
   if (value === null || value === undefined) return { nullValue: null };
+  if (Array.isArray(value)) return { arrayValue: { values: value.map((item) => fsValue(item)) } };
   if (typeof value === "boolean") return { booleanValue: value };
   if (typeof value === "number") return Number.isInteger(value) ? { integerValue: String(value) } : { doubleValue: value };
   if (typeof value === "object") return { mapValue: { fields: Object.fromEntries(Object.entries(value).map(([key, val]) => [key, fsValue(val)])) } };
@@ -207,6 +211,7 @@ function jsValue(value: any): any {
   if ("integerValue" in value) return Number(value.integerValue);
   if ("doubleValue" in value) return Number(value.doubleValue);
   if ("booleanValue" in value) return Boolean(value.booleanValue);
+  if ("arrayValue" in value) return (value.arrayValue.values || []).map((item: any) => jsValue(item));
   if ("mapValue" in value) {
     const fields = value.mapValue.fields || {};
     return Object.fromEntries(Object.entries(fields).map(([key, val]) => [key, jsValue(val)]));
@@ -229,29 +234,29 @@ async function getSyncState(token: string) {
   return Object.fromEntries(Object.entries(data.fields || {}).map(([key, val]) => [key, jsValue(val)]));
 }
 
-async function saveSyncState(token: string, file: any) {
+async function saveSyncState(token: string, file: any, mode: string) {
   await fsFetch(token, `${firestoreBase()}/syncState/driveLatest`, {
     method: "PATCH",
-    body: JSON.stringify({ fields: { fileId: fsValue(file.id), fileName: fsValue(file.name), fileModifiedTime: fsValue(file.modifiedTime), syncedAt: fsValue(new Date().toISOString()) } }),
+    body: JSON.stringify({ fields: { fileId: fsValue(file.id), fileName: fsValue(file.name), fileModifiedTime: fsValue(file.modifiedTime), syncedAt: fsValue(new Date().toISOString()), mode: fsValue(mode) } }),
   });
 }
 
-function docToProduct(document: any): FsProduct {
+function docToFsDoc(document: any): FsDoc {
   const id = String(document.name || "").split("/").pop() || "";
   return { url: `https://firestore.googleapis.com/v1/${document.name}`, id, data: Object.fromEntries(Object.entries(document.fields || {}).map(([key, val]) => [key, jsValue(val)])) };
 }
 
-async function listExistingProducts(token: string) {
-  const products: FsProduct[] = [];
+async function listCollection(token: string, collectionName: string) {
+  const docs: FsDoc[] = [];
   let pageToken = "";
   do {
     const params = new URLSearchParams({ pageSize: "1000" });
     if (pageToken) params.set("pageToken", pageToken);
-    const data = await fsFetch(token, `${firestoreBase()}/products?${params}`);
-    products.push(...(data.documents || []).map((document: any) => docToProduct(document)));
+    const data = await fsFetch(token, `${firestoreBase()}/${collectionName}?${params}`);
+    docs.push(...(data.documents || []).map((document: any) => docToFsDoc(document)));
     pageToken = data.nextPageToken || "";
   } while (pageToken);
-  return products;
+  return docs;
 }
 
 function productCreateFields(product: ProductRow) {
@@ -279,10 +284,10 @@ function productCreateFields(product: ProductRow) {
 
 async function createProduct(token: string, product: ProductRow) {
   const data = await fsFetch(token, `${firestoreBase()}/products`, { method: "POST", body: JSON.stringify({ fields: productCreateFields(product) }) });
-  return data.name ? docToProduct(data) : null;
+  return data.name ? docToFsDoc(data) : null;
 }
 
-async function updateProduct(token: string, documentUrl: string, fields: Record<string, any>) {
+async function updateDocFields(token: string, documentUrl: string, fields: Record<string, any>) {
   const params = new URLSearchParams();
   Object.keys(fields).forEach((key) => params.append("updateMask.fieldPaths", key));
   await fsFetch(token, `${documentUrl}?${params}`, { method: "PATCH", body: JSON.stringify({ fields: Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, fsValue(value)])) }) });
@@ -292,17 +297,17 @@ async function createRecord(token: string, collectionName: string, payload: Reco
   await fsFetch(token, `${firestoreBase()}/${collectionName}`, { method: "POST", body: JSON.stringify({ fields: Object.fromEntries(Object.entries(payload).map(([key, value]) => [key, fsValue(value)])) }) });
 }
 
-function indexByBarcode(products: FsProduct[]) {
-  const map = new Map<string, FsProduct>();
-  products.forEach((product) => {
-    const barcode = String(product.data.barcode || "").trim();
-    if (barcode) map.set(barcode, product);
+function indexByField(docs: FsDoc[], field: string) {
+  const map = new Map<string, FsDoc>();
+  docs.forEach((doc) => {
+    const value = String(doc.data[field] || "").trim();
+    if (value) map.set(value, doc);
   });
   return map;
 }
 
-function indexByName(products: FsProduct[]) {
-  const map = new Map<string, FsProduct[]>();
+function indexProductsByName(products: FsDoc[]) {
+  const map = new Map<string, FsDoc[]>();
   products.forEach((product) => {
     const name = String(product.data.name || "").trim();
     if (!name) return;
@@ -313,12 +318,64 @@ function indexByName(products: FsProduct[]) {
   return map;
 }
 
+function supplierKey(product: ProductRow) {
+  return String(product.supplierCode || product.supplier || "").trim();
+}
+
+function supplierCounts(products: ProductRow[]) {
+  const counts = new Map<string, number>();
+  products.forEach((product) => {
+    const key = supplierKey(product);
+    if (!key) return;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  return counts;
+}
+
+async function syncSuppliers(token: string, products: ProductRow[], allProducts: ProductRow[], suppliersByKey: Map<string, FsDoc>) {
+  const counts = supplierCounts(allProducts);
+  const changedKeys = new Set(products.map((product) => supplierKey(product)).filter(Boolean));
+  let created = 0;
+  let updated = 0;
+
+  for (const key of changedKeys) {
+    const product = products.find((item) => supplierKey(item) === key);
+    if (!product) continue;
+    const payload = {
+      code: product.supplierCode || key,
+      name: product.supplier || product.supplierCode || key,
+      source: "googleDrive",
+      productCount: counts.get(key) || 0,
+      updatedAt: new Date().toISOString(),
+    };
+    const existing = suppliersByKey.get(key);
+    if (!existing) {
+      const data = await fsFetch(token, `${firestoreBase()}/suppliers`, { method: "POST", body: JSON.stringify({ fields: Object.fromEntries(Object.entries({ ...payload, createdAt: new Date().toISOString() }).map(([field, value]) => [field, fsValue(value)])) }) });
+      if (data.name) suppliersByKey.set(key, docToFsDoc(data));
+      created += 1;
+    } else {
+      const hasChange = Object.entries(payload).some(([field, value]) => existing.data[field] !== value);
+      if (hasChange) {
+        await updateDocFields(token, existing.url, payload);
+        existing.data = { ...existing.data, ...payload };
+        updated += 1;
+      }
+    }
+  }
+
+  return { created, updated };
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ ok: false, message: "Method not allowed" });
 
   const folderId = req.body?.folderId || process.env.DRIVE_FOLDER_ID;
   if (!folderId) return res.status(400).json({ ok: false, message: "Missing Drive folder id" });
 
+  const mode = req.body?.mode === "initial" ? "initial" : "daily";
+  const cursor = Math.max(0, Number(req.body?.cursor || 0));
+  const requestedBatchSize = Number(req.body?.batchSize || DEFAULT_BATCH_SIZE);
+  const batchSize = Math.min(MAX_BATCH_SIZE, Math.max(1, Number.isFinite(requestedBatchSize) ? requestedBatchSize : DEFAULT_BATCH_SIZE));
   const startedAt = new Date().toISOString();
 
   try {
@@ -327,26 +384,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!file) return res.status(404).json({ ok: false, message: "No valid product file found" });
 
     const state = await getSyncState(token);
-    if (state?.fileId === file.id && state?.fileModifiedTime === file.modifiedTime) {
-      await createRecord(token, "syncRuns", { status: "skipped", fileId: file.id, fileName: file.name, fileModifiedTime: file.modifiedTime, startedAt, finishedAt: new Date().toISOString(), message: "Latest file already synced" });
-      return res.status(200).json({ ok: true, status: "skipped", file });
+    if (mode === "daily" && cursor === 0 && state?.fileId === file.id && state?.fileModifiedTime === file.modifiedTime) {
+      await createRecord(token, "syncRuns", { status: "skipped", mode, fileId: file.id, fileName: file.name, fileModifiedTime: file.modifiedTime, startedAt, finishedAt: new Date().toISOString(), message: "Latest file already synced" });
+      return res.status(200).json({ ok: true, status: "skipped", mode, file, cursor, totalRows: 0, hasMore: false });
     }
 
     const html = await downloadText(token, file.id);
     const products = parsePosHtml(html);
     if (!products.length) throw new Error("No valid product rows parsed");
 
-    const existingProducts = await listExistingProducts(token);
-    const productsByBarcode = indexByBarcode(existingProducts);
-    const productsByName = indexByName(existingProducts);
+    const batch = products.slice(cursor, cursor + batchSize);
+    const nextCursor = cursor + batch.length;
+    const hasMore = nextCursor < products.length;
+
+    const existingProducts = await listCollection(token, "products");
+    const existingSuppliers = await listCollection(token, "suppliers");
+    const productsByBarcode = indexByField(existingProducts, "barcode");
+    const productsByName = indexProductsByName(existingProducts);
+    const suppliersByCode = indexByField(existingSuppliers, "code");
+    const suppliersByName = indexByField(existingSuppliers, "name");
+    const suppliersByKey = new Map<string, FsDoc>([...suppliersByCode, ...suppliersByName]);
+
+    const supplierResult = await syncSuppliers(token, batch, products, suppliersByKey);
 
     let createdCount = 0;
     let updatedCount = 0;
     let skippedCount = 0;
     let reviewCount = 0;
     let errorCount = 0;
+    let queuedCount = 0;
 
-    for (const product of products) {
+    for (const product of batch) {
       try {
         const existing = productsByBarcode.get(product.barcode) || null;
         const generated = generateLabelName(product.name);
@@ -354,7 +422,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!existing) {
           const sameNameProducts = (productsByName.get(product.name) || []).filter((match) => String(match.data.barcode || "") !== product.barcode);
           const created = await createProduct(token, product);
-          await createRecord(token, "labelPrintQueue", { barcode: product.barcode, name: product.name, labelName: generated.labelName, oldPrice: 0, newPrice: product.price, reason: "new_product", status: "pending", createdAt: new Date().toISOString() });
+
+          if (mode === "daily") {
+            await createRecord(token, "labelPrintQueue", { barcode: product.barcode, name: product.name, labelName: generated.labelName, oldPrice: 0, newPrice: product.price, reason: "new_product", status: "pending", createdAt: new Date().toISOString() });
+            queuedCount += 1;
+          }
 
           if (created) {
             productsByBarcode.set(product.barcode, created);
@@ -368,6 +440,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             await createRecord(token, "productReviewQueue", {
               type: "same_name_new_barcode",
               status: "pending",
+              mode,
               name: product.name,
               newBarcode: product.barcode,
               newPrice: product.price,
@@ -405,11 +478,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const hasAnyChange = Object.entries(changes).some(([key, value]) => existing.data[key] !== value);
 
         if (hasAnyChange) {
-          await updateProduct(token, existing.url, changes);
+          await updateDocFields(token, existing.url, changes);
           existing.data = { ...existing.data, ...changes };
           updatedCount += 1;
-          if (hasPriceChanged) {
+          if (mode === "daily" && hasPriceChanged) {
             await createRecord(token, "labelPrintQueue", { barcode: product.barcode, name: existing.data.name || product.name, labelName: existing.data.labelName || generated.labelName, oldPrice, newPrice: product.price, reason: "price_changed", status: "pending", createdAt: new Date().toISOString() });
+            queuedCount += 1;
           }
         } else {
           skippedCount += 1;
@@ -420,10 +494,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    await saveSyncState(token, file);
-    await createRecord(token, "syncRuns", { status: "success", fileId: file.id, fileName: file.name, fileModifiedTime: file.modifiedTime, startedAt, finishedAt: new Date().toISOString(), totalRows: products.length, existingProducts: existingProducts.length, createdCount, updatedCount, skippedCount, reviewCount, errorCount });
+    if (!hasMore) await saveSyncState(token, file, mode);
+    await createRecord(token, "syncRuns", { status: hasMore ? "partial" : "success", mode, fileId: file.id, fileName: file.name, fileModifiedTime: file.modifiedTime, startedAt, finishedAt: new Date().toISOString(), cursor, nextCursor, batchSize, totalRows: products.length, processedRows: batch.length, createdCount, updatedCount, skippedCount, reviewCount, errorCount, queuedCount, suppliersCreated: supplierResult.created, suppliersUpdated: supplierResult.updated });
 
-    return res.status(200).json({ ok: true, file, totalRows: products.length, existingProducts: existingProducts.length, createdCount, updatedCount, skippedCount, reviewCount, errorCount });
+    return res.status(200).json({ ok: true, mode, file, cursor, nextCursor, batchSize, hasMore, totalRows: products.length, processedRows: batch.length, createdCount, updatedCount, skippedCount, reviewCount, errorCount, queuedCount, suppliersCreated: supplierResult.created, suppliersUpdated: supplierResult.updated });
   } catch (error) {
     console.error("drive sync failed", error);
     return res.status(500).json({ ok: false, message: error instanceof Error ? error.message : "Drive sync failed" });
