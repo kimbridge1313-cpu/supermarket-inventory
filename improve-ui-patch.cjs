@@ -7,6 +7,7 @@ function patchIndex() {
   let text = fs.readFileSync(file, 'utf8');
   text = text
     .split('<script src="/apple-ui-improve.js?v=improve-20260802a"></script>')
+    .join('')
     .split('<script src="/apple-ui-improve.js?v=improve-20260802b"></script>')
     .join('');
 
