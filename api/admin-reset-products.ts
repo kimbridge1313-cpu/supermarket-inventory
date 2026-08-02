@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CONFIRM_TOKEN = "Zp5yfLu10ofwT51X6BhH1ftMKV84DGDdm_SAB8mA4TI";
-const BATCH_SIZE = 400;
+const BATCH_SIZE = 300;
 
 const b64url = (input: string | Buffer) =>
   Buffer.from(input)
@@ -99,17 +99,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ ok: true, deleted: 0, hasMore: false, collection: "products" });
     }
 
-    const writes = documents.map((document: any) => ({ delete: String(document.name || "") })).filter((write: any) => write.delete);
-    await firestoreFetch(token, `https://firestore.googleapis.com/v1/${databaseRoot()}/documents:batchWrite`, {
-      method: "POST",
-      body: JSON.stringify({ writes }),
-    });
+    const writes = documents
+      .map((document: any) => ({ delete: String(document.name || "") }))
+      .filter((write: any) => write.delete);
+
+    const committed: any = await firestoreFetch(
+      token,
+      `https://firestore.googleapis.com/v1/${databaseRoot()}/documents:commit`,
+      {
+        method: "POST",
+        body: JSON.stringify({ writes }),
+      },
+    );
 
     return res.status(200).json({
       ok: true,
       deleted: writes.length,
       hasMore: documents.length === BATCH_SIZE,
       collection: "products",
+      commitTime: committed.commitTime || null,
     });
   } catch (error) {
     console.error("product reset failed", error);
