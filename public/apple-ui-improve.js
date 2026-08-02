@@ -92,14 +92,28 @@ window.addEventListener('DOMContentLoaded', () => {
 
   const enhanceResultButtons = () => {
     document.querySelectorAll('[data-print]').forEach((button) => {
-      button.textContent = '預覽列印';
-      button.setAttribute('aria-label', '開啟此商品的貨卡預覽與列印');
+      if (button.textContent !== '預覽列印') button.textContent = '預覽列印';
+      if (button.getAttribute('aria-label') !== '開啟此商品的貨卡預覽與列印') {
+        button.setAttribute('aria-label', '開啟此商品的貨卡預覽與列印');
+      }
     });
   };
 
   const productsBody = document.getElementById('products-body');
   if (productsBody) {
-    new MutationObserver(enhanceResultButtons).observe(productsBody, { childList: true, subtree: true });
+    let enhanceScheduled = false;
+    const scheduleEnhance = () => {
+      if (enhanceScheduled) return;
+      enhanceScheduled = true;
+      requestAnimationFrame(() => {
+        enhanceScheduled = false;
+        enhanceResultButtons();
+      });
+    };
+    new MutationObserver((mutations) => {
+      const hasAddedNodes = mutations.some((mutation) => mutation.addedNodes.length > 0);
+      if (hasAddedNodes) scheduleEnhance();
+    }).observe(productsBody, { childList: true, subtree: true });
     enhanceResultButtons();
   }
 
