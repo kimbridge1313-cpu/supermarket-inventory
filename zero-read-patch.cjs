@@ -21,7 +21,7 @@ function patchIndex() {
   );
 
   const searchStart = text.indexOf('async function loadProducts(){try{const productCol=collection(state.db,"products");');
-  const searchEnd = searchStart >= 0 ? text.indexOf('function keywordsFromText(', searchStart) : -1;
+  const searchEnd = searchStart >= 0 ? text.indexOf('function filteredProducts()', searchStart) : -1;
   if (searchStart < 0 || searchEnd < 0) {
     throw new Error('Unable to locate patched product loading block');
   }
@@ -30,7 +30,7 @@ function patchIndex() {
 
   text = text.slice(0, searchStart) + onDemandSearch + text.slice(searchEnd);
   text = text.replace('尚無商品資料</td></tr>`;', '找不到符合條件的商品</td></tr>`;');
-  text = text.replace(/stable-20260701j/g, 'stable-20260802b');
+  text = text.replace(/stable-20260701j/g, 'stable-20260802c');
 
   fs.writeFileSync(file, text);
 }
