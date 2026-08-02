@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CONFIRM_TOKEN = "Zp5yfLu10ofwT51X6BhH1ftMKV84DGDdm_SAB8mA4TI";
 const BATCH_SIZE = 300;
+const MAX_BATCHES = 10;
 
 const b64url = (input: string | Buffer) =>
   Buffer.from(input)
@@ -91,33 +92,49 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const token = await getAccessToken();
-    const listUrl = `${firestoreBase()}/products?pageSize=${BATCH_SIZE}&showMissing=false`;
-    const listed: any = await firestoreFetch(token, listUrl);
-    const documents = Array.isArray(listed.documents) ? listed.documents : [];
+    let deleted = 0;
+    let hasMore = false;
+    let lastCommitTime: string | null = null;
+    let batches = 0;
 
-    if (!documents.length) {
-      return res.status(200).json({ ok: true, deleted: 0, hasMore: false, collection: "products" });
+    for (let index = 0; index < MAX_BATCHES; index += 1) {
+      const listUrl = `${firestoreBase()}/products?pageSize=${BATCH_SIZE}&showMissing=false`;
+      const listed: any = await firestoreFetch(token, listUrl);
+      const documents = Array.isArray(listed.documents) ? listed.documents : [];
+
+      if (!documents.length) {
+        hasMore = false;
+        break;
+      }
+
+      const writes = documents
+        .map((document: any) => ({ delete: String(document.name || "") }))
+        .filter((write: any) => write.delete);
+
+      const committed: any = await firestoreFetch(
+        token,
+        `https://firestore.googleapis.com/v1/${databaseRoot()}/documents:commit`,
+        {
+          method: "POST",
+          body: JSON.stringify({ writes }),
+        },
+      );
+
+      deleted += writes.length;
+      batches += 1;
+      lastCommitTime = committed.commitTime || lastCommitTime;
+      hasMore = documents.length === BATCH_SIZE;
+
+      if (!hasMore) break;
     }
-
-    const writes = documents
-      .map((document: any) => ({ delete: String(document.name || "") }))
-      .filter((write: any) => write.delete);
-
-    const committed: any = await firestoreFetch(
-      token,
-      `https://firestore.googleapis.com/v1/${databaseRoot()}/documents:commit`,
-      {
-        method: "POST",
-        body: JSON.stringify({ writes }),
-      },
-    );
 
     return res.status(200).json({
       ok: true,
-      deleted: writes.length,
-      hasMore: documents.length === BATCH_SIZE,
+      deleted,
+      batches,
+      hasMore,
       collection: "products",
-      commitTime: committed.commitTime || null,
+      commitTime: lastCommitTime,
     });
   } catch (error) {
     console.error("product reset failed", error);
