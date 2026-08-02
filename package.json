@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node build-patch.cjs && node zero-read-patch.cjs && vite build",
+    "build": "node build-patch.cjs && node zero-read-patch.cjs && node apple-ui-patch.cjs && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
