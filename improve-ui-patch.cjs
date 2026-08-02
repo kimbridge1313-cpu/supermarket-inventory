@@ -10,6 +10,8 @@ function patchIndex() {
     .join('')
     .split('<script src="/apple-ui-improve.js?v=improve-20260802b"></script>')
     .join('')
+    .split('<script src="/apple-ui-improve.js?v=improve-20260802c"></script>')
+    .join('')
     .split('<script src="/search-watchdog.js?v=search-20260802a"></script>')
     .join('');
 
@@ -20,7 +22,7 @@ function patchIndex() {
 
   text = text.replace(
     '</body>',
-    '<script src="/apple-ui-improve.js?v=improve-20260802b"></script><script src="/search-watchdog.js?v=search-20260802a"></script></body>'
+    '<script src="/apple-ui-improve.js?v=improve-20260802c"></script><script src="/search-watchdog.js?v=search-20260802a"></script></body>'
   );
   fs.writeFileSync(file, text);
 }
