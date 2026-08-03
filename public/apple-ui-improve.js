@@ -11,16 +11,16 @@ window.addEventListener('DOMContentLoaded', () => {
       .apple-result-area{margin-top:20px!important}
       .apple-result-card{padding:0!important;background:transparent!important;border:0!important;box-shadow:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
       .apple-result-card tbody{display:grid!important;gap:14px!important}
-      .apple-result-card tr{display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;grid-template-areas:'name price' 'meta meta' 'lang lang' 'actions actions'!important;column-gap:14px!important;row-gap:0!important;align-items:start!important;padding:20px!important;border:1px solid rgba(17,24,39,.07)!important;border-radius:24px!important;background:rgba(255,255,255,.92)!important;box-shadow:0 12px 34px rgba(31,35,48,.07)!important;transform:none!important}
-      .apple-result-card td{display:block!important;width:auto!important;min-width:0!important;max-width:none!important;margin:0!important;padding:0!important;border:0!important;text-align:left!important;white-space:normal!important;overflow-wrap:normal!important;word-break:normal!important}
+      .apple-result-card tr{display:grid!important;grid-template-columns:minmax(0,1fr)!important;grid-template-areas:'name' 'price' 'meta' 'lang' 'actions'!important;row-gap:0!important;align-items:start!important;padding:20px!important;border:1px solid rgba(17,24,39,.07)!important;border-radius:24px!important;background:rgba(255,255,255,.92)!important;box-shadow:0 12px 34px rgba(31,35,48,.07)!important;transform:none!important}
+      .apple-result-card td{display:block!important;width:100%!important;min-width:0!important;max-width:none!important;margin:0!important;padding:0!important;border:0!important;text-align:left!important;white-space:normal!important;overflow-wrap:normal!important;word-break:normal!important}
       #panel-products .apple-result-card td::before{display:none!important;content:none!important}
 
-      .apple-result-card td:nth-child(2){grid-area:name!important;padding-right:2px!important}
-      .apple-result-card td:nth-child(2) strong{display:-webkit-box!important;-webkit-box-orient:vertical!important;-webkit-line-clamp:2!important;overflow:hidden!important;font-size:20px!important;font-weight:800!important;line-height:1.28!important;letter-spacing:-.025em!important;color:#1d1d1f!important;word-break:keep-all!important;overflow-wrap:anywhere!important}
+      .apple-result-card td:nth-child(2){grid-area:name!important;width:100%!important;padding:0!important}
+      .apple-result-card td:nth-child(2) strong{display:-webkit-box!important;width:100%!important;max-width:100%!important;-webkit-box-orient:vertical!important;-webkit-line-clamp:2!important;overflow:hidden!important;font-size:20px!important;font-weight:800!important;line-height:1.28!important;letter-spacing:-.025em!important;color:#1d1d1f!important;word-break:normal!important;overflow-wrap:anywhere!important}
       .apple-result-card td:nth-child(2) br{display:none!important}
       .apple-result-card td:nth-child(2) .muted{display:none!important}
 
-      .apple-result-card td:nth-child(4){grid-area:price!important;align-self:start!important;font-size:26px!important;font-weight:850!important;line-height:1!important;letter-spacing:-.04em!important;color:#111!important;white-space:nowrap!important;padding-top:2px!important}
+      .apple-result-card td:nth-child(4){grid-area:price!important;width:100%!important;margin-top:8px!important;font-size:28px!important;font-weight:850!important;line-height:1!important;letter-spacing:-.04em!important;color:#111!important;white-space:nowrap!important;text-align:left!important}
 
       .apple-result-card td:nth-child(1){grid-area:meta!important;margin-top:14px!important;padding-top:12px!important;border-top:1px solid rgba(17,24,39,.07)!important;color:#77787d!important;font-size:12px!important;line-height:1.4!important;letter-spacing:.02em!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
       .apple-result-card td:nth-child(1)::before{display:inline!important;content:'條碼  '!important;color:#9a9aa0!important;font-weight:700!important}
@@ -43,7 +43,7 @@ window.addEventListener('DOMContentLoaded', () => {
     @media(max-width:390px){
       .apple-result-card tr{padding:18px!important;border-radius:22px!important}
       .apple-result-card td:nth-child(2) strong{font-size:18px!important}
-      .apple-result-card td:nth-child(4){font-size:24px!important}
+      .apple-result-card td:nth-child(4){font-size:26px!important}
       .apple-result-card td.row{grid-template-columns:82px minmax(0,1fr)!important}
     }
   `;
