@@ -50,7 +50,7 @@ async function getServiceAccountToken() {
   const response = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion })
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth2:grant-type:jwt-bearer", assertion })
   });
   const data: any = await readJsonSafe(response);
   if (!response.ok || !data.access_token) throw new Error(data.error_description || data.error?.message || data.error || `OAuth ${response.status}`);
@@ -84,15 +84,49 @@ function productDocument(document: any) {
   };
 }
 
+function longSearchWindows(term: string) {
+  const chars = [...term];
+  const windows: string[] = [];
+  for (let i = 0; i <= chars.length - 4 && windows.length < 10; i++) {
+    const value = chars.slice(i, i + 4).join("");
+    if (value && !windows.includes(value)) windows.push(value);
+  }
+  return windows;
+}
+
+function productMatchesTerm(product: any, term: string) {
+  const values = [
+    product?.barcode,
+    product?.name,
+    product?.labelName,
+    product?.nameVi,
+    product?.nameVietnamese,
+    product?.nameId,
+    product?.nameIndonesian,
+    product?.category,
+    product?.supplier,
+    product?.supplierCode,
+    product?.spec,
+  ];
+  return values.some((value) => normalizeSearch(String(value || "")).includes(term));
+}
+
 async function queryProducts(token: string, input: string) {
   const raw = String(input || "").trim();
   const term = normalizeSearch(raw);
   const looksLikeBarcode = /^[0-9A-Za-z]+$/.test(raw) && raw.length >= 5;
   if (!looksLikeBarcode && term.length < 2) return [];
 
+  const isLongTextSearch = !looksLikeBarcode && [...term].length > 4;
   const fieldPath = looksLikeBarcode ? "barcode" : "searchKeywords";
-  const op = looksLikeBarcode ? "EQUAL" : "ARRAY_CONTAINS";
-  const value = { stringValue: looksLikeBarcode ? raw : term };
+  const windows = isLongTextSearch ? longSearchWindows(term) : [];
+  const op = looksLikeBarcode ? "EQUAL" : isLongTextSearch ? "ARRAY_CONTAINS_ANY" : "ARRAY_CONTAINS";
+  const value = looksLikeBarcode
+    ? { stringValue: raw }
+    : isLongTextSearch
+      ? { arrayValue: { values: windows.map((window) => ({ stringValue: window })) } }
+      : { stringValue: term };
+
   const endpoint = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId())}/databases/(default)/documents:runQuery`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10000);
@@ -104,7 +138,7 @@ async function queryProducts(token: string, input: string) {
         structuredQuery: {
           from: [{ collectionId: "products" }],
           where: { fieldFilter: { field: { fieldPath }, op, value } },
-          limit: looksLikeBarcode ? 1 : 20
+          limit: looksLikeBarcode ? 1 : isLongTextSearch ? 200 : 20
         }
       }),
       signal: controller.signal
@@ -116,7 +150,12 @@ async function queryProducts(token: string, input: string) {
       error.code = data.error?.status || "FIRESTORE_ERROR";
       throw error;
     }
-    return (Array.isArray(data) ? data : []).filter((row: any) => row.document).map((row: any) => productDocument(row.document));
+    const products = (Array.isArray(data) ? data : [])
+      .filter((row: any) => row.document)
+      .map((row: any) => productDocument(row.document));
+    return isLongTextSearch
+      ? products.filter((product: any) => productMatchesTerm(product, term)).slice(0, 20)
+      : products;
   } catch (error: any) {
     if (error?.name === "AbortError") throw new Error("Firestore server query timed out");
     throw error;
