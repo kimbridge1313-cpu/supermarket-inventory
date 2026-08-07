@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { buildFeieBarcodeTag, buildFeieCompactBarcodeCommand, buildFeiePriceCard, countCutTags } from '../lib/feie-price-card.mjs';
+import { buildFeieBarcodeTag, buildFeieCompactBarcodeCommand, buildFeiePriceCard, countCutTags, truncatePrinterLine } from '../lib/feie-price-card.mjs';
 
 const settings = { storeName: '宜梧來來超市' };
 
@@ -15,12 +15,14 @@ function card(product) {
   assert.equal(result.content.barcodeSpacingMode, 'official-function-compact-48dot');
   assert.equal(result.content.barcodeHeightDots, 48);
   assert.equal(result.content.barcodePosition, 'bottom');
+  assert.equal(result.content.translationMaxColumns, 32);
+  assert.equal(result.markup.includes('宜梧來來超市'), false);
+  assert.equal('storeName' in result.content, false);
   assert.equal(result.markup.includes('<BC128_C>'), false);
   assert.equal(result.markup.includes('\x1b\x64\x02'), false);
   assert.equal(result.markup.includes('\x1d\x68\x30'), true);
   assert.equal(result.markup.includes('\x1d\x77\x02'), true);
   assert.equal(result.markup.includes('\x1d\x6b\x49'), true);
-  assert.equal(result.markup.startsWith('<BOLD>宜梧來來超市</BOLD>'), true);
   assert.equal(result.markup.includes(`</RIGHT><BR><C>${command}</C>`), true);
   assert.equal(result.markup.endsWith(`<C>${command}</C>`), true);
   assert.equal(result.markup.endsWith('<BR>'), false);
@@ -67,6 +69,20 @@ for (const name of ['統一肉燥麵(包裝)*5入', '統一麥香奶茶']) {
   assert.equal(result.content.nameVi, 'Ca phe sua da Dac biet');
   assert.equal(result.markup.includes('Cà phê'), false);
   assert.equal(result.markup.includes('Ca phe sua da Dac biet'), true);
+}
+
+{
+  assert.equal(truncatePrinterLine('ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890', 32), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ123456');
+  const result = card({
+    labelName: '長翻譯測試',
+    nameVi: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890',
+    nameId: 'abcdefghijklmnopqrstuvwxyz1234567890',
+    price: 10,
+    barcode: '1234567890123',
+  });
+  assert.equal(result.content.nameVi, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ123456');
+  assert.equal(result.content.nameId, 'abcdefghijklmnopqrstuvwxyz123456');
+  assert.equal(result.markup.includes('7890'), false);
 }
 
 {
