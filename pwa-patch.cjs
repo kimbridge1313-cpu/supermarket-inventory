@@ -10,7 +10,11 @@ if (!text.includes(headMarker)) {
   const pwaHead = `
   ${headMarker}
   <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
+  <link rel="shortcut icon" href="/icons/icon-192.png" />
   <meta name="theme-color" content="#ffffff" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="來來庫存" />
@@ -23,7 +27,8 @@ const scriptMarker = '<!-- KF_PWA_REGISTER -->';
 if (!text.includes(scriptMarker)) {
   const registration = `
   ${scriptMarker}
-  <script src="/pwa-register.js?v=20260807a" defer></script>
+  <script src="/pwa-ui-fix.js?v=20260807a" defer></script>
+  <script src="/pwa-register.js?v=20260807b" defer></script>
 `;
   text = text.replace('</body>', `${registration}</body>`);
 }
