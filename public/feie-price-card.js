@@ -36,7 +36,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   const note = document.createElement('div');
   note.className = 'feie-content-note';
-  note.textContent = '實際字型、間距與條碼尺寸由飛鵝印表機控制；此畫面只確認列印內容、規格與順序。';
+  note.textContent = '實際字型、間距與條碼尺寸由飛鵝印表機控制；越南文與印尼文最多列印一行，超出部分會截掉。';
   const labelPreview = document.getElementById('label-preview');
   labelPreview?.insertAdjacentElement('afterend', note);
   const labelHeading = document.querySelector('#panel-labels .card h2');
@@ -53,7 +53,7 @@ window.addEventListener('DOMContentLoaded', () => {
         <div><h2 id="feie-dialog-title">貨卡內容確認</h2></div>
         <button type="button" class="feie-close" aria-label="關閉">×</button>
       </div>
-      <div class="feie-warning">實際字型、間距與條碼尺寸由飛鵝印表機控制；此畫面只確認列印內容與順序。</div>
+      <div class="feie-warning">越南文與印尼文最多列印一行，超出部分會截掉；此畫面顯示實際送印內容。</div>
       <dl class="feie-summary"></dl>
       <details class="feie-markup"><summary>查看飛鵝 API 指令</summary><pre></pre></details>
       <div class="feie-status" role="status" aria-live="polite"></div>
@@ -98,7 +98,6 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   const currentSettings = () => ({
-    storeName: state.settings?.storeName || '',
     showNameZh: state.settings?.showNameZh !== false,
     showNameVi: state.settings?.showNameVi !== false,
     showNameId: state.settings?.showNameId !== false,
@@ -151,7 +150,6 @@ window.addEventListener('DOMContentLoaded', () => {
 
   const renderSummary = (content) => {
     const rows = [
-      ['門店', content.storeName || '未設定'],
       ['中文', content.nameZh || '不顯示'],
       ['越南文', content.nameVi || '不顯示'],
       ['印尼文', content.nameId || '不顯示'],
