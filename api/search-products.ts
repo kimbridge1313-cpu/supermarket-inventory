@@ -50,7 +50,7 @@ async function getServiceAccountToken() {
   const response = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth2:grant-type:jwt-bearer", assertion })
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion })
   });
   const data: any = await readJsonSafe(response);
   if (!response.ok || !data.access_token) throw new Error(data.error_description || data.error?.message || data.error || `OAuth ${response.status}`);
