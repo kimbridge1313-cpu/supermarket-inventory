@@ -19,30 +19,29 @@ const mobile = `    @media(max-width:820px){
       .apple-result-card table{display:block!important;width:100%!important;min-width:0!important}
       .apple-result-card thead{display:none!important}
       .apple-result-card tbody{display:grid!important;width:100%!important;gap:14px!important}
-      .apple-result-card tr{display:block!important;width:100%!important;min-width:0!important;padding:20px!important;border:1px solid rgba(17,24,39,.07)!important;border-radius:24px!important;background:rgba(255,255,255,.94)!important;box-shadow:0 12px 34px rgba(31,35,48,.07)!important;transform:none!important}
-      .apple-result-card td{display:block!important;width:100%!important;min-width:0!important;max-width:none!important;margin:0!important;padding:0!important;border:0!important;text-align:left!important;white-space:normal!important;overflow-wrap:anywhere!important;word-break:normal!important}
+      .apple-result-card tr{display:flex!important;flex-direction:column!important;width:100%!important;min-width:0!important;gap:0!important;padding:20px!important;border:1px solid rgba(17,24,39,.07)!important;border-radius:24px!important;background:rgba(255,255,255,.94)!important;box-shadow:0 12px 34px rgba(31,35,48,.07)!important;transform:none!important}
+      .apple-result-card td{display:block!important;width:100%!important;min-width:0!important;max-width:none!important;margin:0!important;padding:0!important;border:0!important;text-align:left!important;white-space:normal!important;overflow-wrap:anywhere!important;word-break:normal!important;grid-column:auto!important;grid-row:auto!important}
+      .apple-result-card td[hidden]{display:none!important}
       #panel-products .apple-result-card td::before{display:none!important;content:none!important}
 
-      .apple-result-card td:nth-child(2){margin:0!important}
+      .apple-result-card td:nth-child(2){order:1!important;margin:0!important}
       .apple-result-card td:nth-child(2) strong{display:block!important;width:100%!important;max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;font-size:20px!important;font-weight:800!important;line-height:1.25!important;letter-spacing:-.025em!important;color:#1d1d1f!important}
       .apple-result-card td:nth-child(2) br{display:none!important}
       .apple-result-card td:nth-child(2) .muted{display:none!important}
 
-      .apple-result-card td:nth-child(4){margin-top:10px!important;font-size:30px!important;font-weight:850!important;line-height:1!important;letter-spacing:-.04em!important;color:#111!important;white-space:nowrap!important;text-align:left!important}
+      .apple-result-card td:nth-child(4){order:2!important;margin-top:10px!important;font-size:30px!important;font-weight:850!important;line-height:1!important;letter-spacing:-.04em!important;color:#111!important;white-space:nowrap!important;text-align:left!important}
 
-      .apple-result-card td:nth-child(1){margin-top:14px!important;padding-top:12px!important;border-top:1px solid rgba(17,24,39,.07)!important;color:#73747a!important;font-size:12px!important;line-height:1.4!important;letter-spacing:.02em!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
-      .apple-result-card td:nth-child(1)::before{display:inline!important;content:'條碼：'!important;color:#8f9096!important;font-weight:700!important}
+      .apple-result-card td:nth-child(1){order:3!important;margin-top:16px!important;padding-top:12px!important;border-top:1px solid rgba(17,24,39,.07)!important;color:#73747a!important;font-size:12px!important;line-height:1.4!important;letter-spacing:.02em!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
 
-      .apple-result-card td:nth-child(5){margin-top:8px!important;color:#73747a!important;font-size:12px!important;line-height:1.45!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;text-align:left!important}
+      .apple-result-card td:nth-child(5){order:4!important;margin-top:7px!important;color:#73747a!important;font-size:12px!important;line-height:1.45!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;text-align:left!important}
       .apple-result-card td:nth-child(5)::before{display:inline!important;content:'規格：'!important;color:#8f9096!important;font-weight:700!important}
       .apple-result-card td:nth-child(5).apple-empty-spec{display:none!important}
 
-      .apple-result-card td:nth-child(3){margin-top:13px!important;padding:0!important;background:transparent!important;color:#686970!important;font-size:13px!important;line-height:1.45!important}
+      .apple-result-card td:nth-child(3){order:5!important;display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:7px!important;width:100%!important;margin-top:13px!important;padding:0!important;background:transparent!important;color:#686970!important;font-size:13px!important;line-height:1.45!important}
       .apple-result-card td:nth-child(3) br{display:none!important}
-      .apple-result-card td:nth-child(3) .muted{display:block!important;width:100%!important;max-width:100%!important;padding:10px 12px!important;border-radius:12px!important;background:#f6f7f9!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
-      .apple-result-card td:nth-child(3) .muted + .muted{margin-top:7px!important}
+      .apple-result-card td:nth-child(3) > .muted{display:block!important;width:100%!important;min-width:0!important;max-width:100%!important;margin:0!important;padding:10px 12px!important;border-radius:12px!important;background:#f6f7f9!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
 
-      .apple-result-card td.row{display:grid!important;width:100%!important;grid-template-columns:92px minmax(0,1fr)!important;gap:10px!important;margin-top:14px!important}
+      .apple-result-card td.row{order:6!important;display:grid!important;width:100%!important;grid-template-columns:92px minmax(0,1fr)!important;gap:10px!important;margin-top:14px!important}
       .apple-result-card td.row button{width:100%!important;min-width:0!important;min-height:46px!important;margin:0!important;padding:0 14px!important;border-radius:15px!important;font-size:14px!important;font-weight:750!important;white-space:nowrap!important;box-shadow:none!important}
       .apple-result-card td.row [data-edit]{background:#eef4ff!important;color:#0866c6!important}
       .apple-result-card td.row [data-print]{background:#0071e3!important;color:#fff!important;box-shadow:0 8px 20px rgba(0,113,227,.18)!important}
@@ -57,8 +56,7 @@ fs.writeFileSync(file, text);
 const indexFile = 'index.html';
 if (!fs.existsSync(indexFile)) throw new Error('Missing index.html');
 let index = fs.readFileSync(indexFile, 'utf8');
-index = index
-  .replace(/\/apple-ui-improve\.js\?v=improve-[0-9a-z]+/g, '/apple-ui-improve.js?v=improve-20260807c');
+index = index.replace(/\/apple-ui-improve\.js\?v=improve-[0-9a-z]+/g, '/apple-ui-improve.js?v=improve-20260807e');
 fs.writeFileSync(indexFile, index);
 
 console.log('mobile result card patch applied');
