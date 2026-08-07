@@ -14,7 +14,7 @@ function card(product) {
   assert.equal(result.content.spec, '100g');
   assert.equal(result.content.barcodeSpacingMode, 'official-function-compact-48dot');
   assert.equal(result.content.barcodeHeightDots, 48);
-  assert.equal(result.content.barcodePosition, 'bottom');
+  assert.equal(result.content.barcodePosition, 'top');
   assert.equal(result.content.translationMaxColumns, 32);
   assert.equal(result.markup.includes('宜梧來來超市'), false);
   assert.equal('storeName' in result.content, false);
@@ -23,8 +23,10 @@ function card(product) {
   assert.equal(result.markup.includes('\x1d\x68\x30'), true);
   assert.equal(result.markup.includes('\x1d\x77\x02'), true);
   assert.equal(result.markup.includes('\x1d\x6b\x49'), true);
-  assert.equal(result.markup.includes(`</RIGHT><BR><C>${command}</C>`), true);
-  assert.equal(result.markup.endsWith(`<C>${command}</C>`), true);
+  assert.equal(result.markup.startsWith(`<C>${command}</C>`), true);
+  assert.equal(result.markup.includes('規格：100g'), true);
+  assert.equal(result.markup.includes('<C>100g</C>'), false);
+  assert.equal(result.markup.indexOf('規格：100g') < result.markup.indexOf('<RIGHT>'), true);
   assert.equal(result.markup.endsWith('<BR>'), false);
   assert.equal(countCutTags(result.markup), 0);
   assert.equal(result.content.cutMode, 'device-auto');
@@ -43,8 +45,9 @@ function card(product) {
   const result = card({ labelName: '義美紅豆牛奶冰棒', price: 20, barcode: '130511114450' });
   assert.equal(result.markup.includes('<W><L><BOLD>義美紅豆牛奶冰棒</BOLD></L></W>'), true);
   assert.equal(result.content.barcodeSpacingMode, 'official-function-compact-48dot');
-  assert.equal(result.content.barcodePosition, 'bottom');
-  assert.equal(result.markup.indexOf('義美紅豆牛奶冰棒') < result.markup.indexOf('\x1d\x48\x32'), true);
+  assert.equal(result.content.barcodePosition, 'top');
+  assert.equal(result.markup.indexOf('\x1d\x48\x32') < result.markup.indexOf('義美紅豆牛奶冰棒'), true);
+  assert.equal(result.markup.includes('規格：'), false);
 }
 
 {
@@ -101,6 +104,7 @@ for (const name of ['統一肉燥麵(包裝)*5入', '統一麥香奶茶']) {
   assert.equal(countCutTags(result.markup), 0);
   assert.equal(result.markup.includes('<QR>'), false);
   assert.match(result.markup, /惡意CUT商品/);
+  assert.equal(result.markup.includes('規格：QR100g/QR'), true);
 }
 
 assert.deepEqual(buildFeieBarcodeTag('4710123456789'), {
@@ -117,8 +121,8 @@ assert.equal(buildFeieBarcodeTag('12345678901234567890123').format, '純文字')
 {
   const result = card({ labelName: '長條碼測試', price: 55, barcode: '123456789012345' });
   assert.equal(result.content.barcodeSpacingMode, 'native-no-br');
-  assert.equal(result.content.barcodePosition, 'bottom');
-  assert.equal(result.markup.endsWith('<C><BC128_C>123456789012345</BC128_C></C>'), true);
+  assert.equal(result.content.barcodePosition, 'top');
+  assert.equal(result.markup.startsWith('<C><BC128_C>123456789012345</BC128_C></C>'), true);
 }
 
 {
@@ -126,7 +130,7 @@ assert.equal(buildFeieBarcodeTag('12345678901234567890123').format, '純文字')
   const command = buildFeieCompactBarcodeCommand('1234567890123');
   assert.equal(result.content.times, 1);
   assert.equal(result.markup.includes('<RIGHT><W><B>55</B></W><BOLD>元</BOLD></RIGHT>'), true);
-  assert.equal(result.markup.endsWith(`<C>${command}</C>`), true);
+  assert.equal(result.markup.startsWith(`<C>${command}</C>`), true);
 }
 
 console.log('feie price card formatter tests passed');
