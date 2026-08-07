@@ -17,6 +17,9 @@
       background:#17181b!important;
       color:#fff!important;
     }
+    .apple-login-slot #login-btn.hidden{
+      display:none!important;
+    }
     .apple-login-slot #login-btn svg{
       display:block!important;
       flex:0 0 18px!important;
