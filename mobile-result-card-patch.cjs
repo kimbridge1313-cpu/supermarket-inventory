@@ -56,4 +56,12 @@ text = text.replace(
 );
 
 fs.writeFileSync(file, text);
+
+const indexFile = 'index.html';
+if (!fs.existsSync(indexFile)) throw new Error('Missing index.html');
+let index = fs.readFileSync(indexFile, 'utf8');
+index = index
+  .replace(/\/apple-ui-improve\.js\?v=improve-[0-9a-z]+/g, '/apple-ui-improve.js?v=improve-20260807a');
+fs.writeFileSync(indexFile, index);
+
 console.log('mobile result card patch applied');
