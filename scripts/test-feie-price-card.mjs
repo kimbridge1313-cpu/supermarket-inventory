@@ -72,17 +72,20 @@ for (const name of ['統一肉燥麵(包裝)*5入', '統一麥香奶茶']) {
 }
 
 {
-  assert.equal(truncatePrinterLine('ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890', 32), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ123456');
+  const longVi = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890';
+  const longId = 'abcdefghijklmnopqrstuvwxyz1234567890';
+  assert.equal(truncatePrinterLine(longVi, 32), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ123456');
   const result = card({
     labelName: '長翻譯測試',
-    nameVi: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890',
-    nameId: 'abcdefghijklmnopqrstuvwxyz1234567890',
+    nameVi: longVi,
+    nameId: longId,
     price: 10,
     barcode: '1234567890123',
   });
   assert.equal(result.content.nameVi, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ123456');
   assert.equal(result.content.nameId, 'abcdefghijklmnopqrstuvwxyz123456');
-  assert.equal(result.markup.includes('7890'), false);
+  assert.equal(result.markup.includes(longVi), false);
+  assert.equal(result.markup.includes(longId), false);
 }
 
 {
