@@ -9,15 +9,20 @@ function card(product) {
 
 {
   const result = card({ labelName: '布丁*12入', spec: '100g', price: 120, barcode: '4710123456789' });
+  const command = buildFeieCompactBarcodeCommand('4710123456789');
   assert.equal(result.content.nameZh, '布丁*12入');
   assert.equal(result.content.spec, '100g');
   assert.equal(result.content.barcodeSpacingMode, 'official-function-compact-48dot');
   assert.equal(result.content.barcodeHeightDots, 48);
+  assert.equal(result.content.barcodePosition, 'bottom');
   assert.equal(result.markup.includes('<BC128_C>'), false);
   assert.equal(result.markup.includes('\x1b\x64\x02'), false);
   assert.equal(result.markup.includes('\x1d\x68\x30'), true);
   assert.equal(result.markup.includes('\x1d\x77\x02'), true);
   assert.equal(result.markup.includes('\x1d\x6b\x49'), true);
+  assert.equal(result.markup.startsWith('<BOLD>宜梧來來超市</BOLD>'), true);
+  assert.equal(result.markup.includes(`</RIGHT><BR><C>${command}</C>`), true);
+  assert.equal(result.markup.endsWith(`<C>${command}</C>`), true);
   assert.equal(result.markup.endsWith('<BR>'), false);
   assert.equal(countCutTags(result.markup), 0);
   assert.equal(result.content.cutMode, 'device-auto');
@@ -36,6 +41,8 @@ function card(product) {
   const result = card({ labelName: '義美紅豆牛奶冰棒', price: 20, barcode: '130511114450' });
   assert.equal(result.markup.includes('<W><L><BOLD>義美紅豆牛奶冰棒</BOLD></L></W>'), true);
   assert.equal(result.content.barcodeSpacingMode, 'official-function-compact-48dot');
+  assert.equal(result.content.barcodePosition, 'bottom');
+  assert.equal(result.markup.indexOf('義美紅豆牛奶冰棒') < result.markup.indexOf('\x1d\x48\x32'), true);
 }
 
 {
@@ -91,13 +98,16 @@ assert.equal(buildFeieBarcodeTag('12345678901234567890123').format, '純文字')
 {
   const result = card({ labelName: '長條碼測試', price: 55, barcode: '123456789012345' });
   assert.equal(result.content.barcodeSpacingMode, 'native-no-br');
-  assert.equal(result.markup.includes('<BC128_C>123456789012345</BC128_C>'), true);
+  assert.equal(result.content.barcodePosition, 'bottom');
+  assert.equal(result.markup.endsWith('<C><BC128_C>123456789012345</BC128_C></C>'), true);
 }
 
 {
   const result = card({ labelName: '測試商品', price: 55, barcode: '1234567890123' });
+  const command = buildFeieCompactBarcodeCommand('1234567890123');
   assert.equal(result.content.times, 1);
-  assert.match(result.markup, /<RIGHT><W><B>55<\/B><\/W><BOLD>元<\/BOLD><\/RIGHT>$/);
+  assert.equal(result.markup.includes('<RIGHT><W><B>55</B></W><BOLD>元</BOLD></RIGHT>'), true);
+  assert.equal(result.markup.endsWith(`<C>${command}</C>`), true);
 }
 
 console.log('feie price card formatter tests passed');
