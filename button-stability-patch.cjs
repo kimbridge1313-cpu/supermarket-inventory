@@ -34,7 +34,7 @@ function bumpAppleVersion() {
   const file = 'index.html';
   if (!fs.existsSync(file)) throw new Error('Missing index.html');
   let text = fs.readFileSync(file, 'utf8');
-  text = text.replace(/\/apple-ui-improve\.js\?v=improve-[0-9a-z]+/g, '/apple-ui-improve.js?v=improve-20260807b');
+  text = text.replace(/\/apple-ui-improve\.js\?v=improve-[0-9a-z]+/g, '/apple-ui-improve.js?v=improve-20260807c');
   fs.writeFileSync(file, text);
 }
 
