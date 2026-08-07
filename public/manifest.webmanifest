@@ -1,0 +1,26 @@
+{
+  "name": "宜梧來來超市｜商品資料與貨卡列印",
+  "short_name": "來來庫存",
+  "description": "宜梧來來超市商品資料、搜尋、編輯與貨卡列印工具",
+  "lang": "zh-TW",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#ffffff",
+  "background_color": "#f5f5f7",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
