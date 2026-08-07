@@ -1,6 +1,6 @@
 const fs = require('node:fs');
 
-const SCRIPT_VERSION = 'feie-price-card-20260806b';
+const SCRIPT_VERSION = 'feie-price-card-20260807a';
 
 function patchIndex() {
   const file = 'index.html';
