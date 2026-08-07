@@ -12,11 +12,13 @@ function card(product) {
   assert.equal(result.content.nameZh, '布丁*12入');
   assert.equal(result.content.spec, '100g');
   assert.match(result.markup, /<BC128_C>4710123456789<\/BC128_C>/);
-  assert.equal(result.markup.startsWith('<C><BC128_C>4710123456789</BC128_C></C><BR><BOLD>宜梧來來超市</BOLD>'), true);
+  assert.equal(result.markup.startsWith('<C><BC128_C>4710123456789</BC128_C></C><BOLD>宜梧來來超市</BOLD>'), true);
+  assert.equal(result.markup.includes('</BC128_C></C><BR>'), false);
   assert.equal(result.markup.includes('</BC128_C></C><BR><BR>'), false);
   assert.equal(result.markup.includes('</BC128_C></C><BR><C>4710123456789</C>'), false);
   assert.equal(result.markup.endsWith('<BR>'), false);
   assert.equal(countCutTags(result.markup), 0);
+  assert.equal(result.content.barcodeSpacingMode, 'native-no-br');
   assert.equal(result.content.cutMode, 'device-auto');
 }
 
