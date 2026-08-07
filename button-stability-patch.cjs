@@ -12,8 +12,10 @@ function patchAppleImprove() {
   }
 
   const emptyEnhancer = `  const enhanceResultButtons = () => {\n  };`;
-  const specEnhancer = `  const enhanceResultButtons = () => {\n    document.querySelectorAll('.apple-result-card tr').forEach((row) => {\n      const specCell = row.querySelector('td:nth-child(5)');\n      if (specCell) {\n        const value = specCell.textContent?.trim() || '';\n        specCell.classList.toggle('apple-empty-spec', !value || value === '-');\n      }\n    });\n  };`;
+  const oldSpecEnhancer = `  const enhanceResultButtons = () => {\n    document.querySelectorAll('.apple-result-card tr').forEach((row) => {\n      const specCell = row.querySelector('td:nth-child(5)');\n      if (specCell) {\n        const value = specCell.textContent?.trim() || '';\n        specCell.classList.toggle('apple-empty-spec', !value || value === '-');\n      }\n    });\n  };`;
+  const specEnhancer = `  const enhanceResultButtons = () => {\n    document.querySelectorAll('.apple-result-card tr').forEach((row) => {\n      const specCell = row.querySelector('td:nth-child(5)');\n      if (specCell) {\n        const value = specCell.textContent?.trim() || '';\n        const empty = !value || value === '-';\n        specCell.classList.toggle('apple-empty-spec', empty);\n        specCell.hidden = empty;\n      }\n    });\n  };`;
   if (text.includes(emptyEnhancer)) text = text.replace(emptyEnhancer, specEnhancer);
+  if (text.includes(oldSpecEnhancer)) text = text.replace(oldSpecEnhancer, specEnhancer);
 
   fs.writeFileSync(file, text);
 }
@@ -38,7 +40,7 @@ function bumpAppleVersion() {
   const file = 'index.html';
   if (!fs.existsSync(file)) throw new Error('Missing index.html');
   let text = fs.readFileSync(file, 'utf8');
-  text = text.replace(/\/apple-ui-improve\.js\?v=improve-[0-9a-z]+/g, '/apple-ui-improve.js?v=improve-20260807d');
+  text = text.replace(/\/apple-ui-improve\.js\?v=improve-[0-9a-z]+/g, '/apple-ui-improve.js?v=improve-20260807e');
   fs.writeFileSync(file, text);
 }
 
