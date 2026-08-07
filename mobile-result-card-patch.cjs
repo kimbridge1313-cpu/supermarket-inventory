@@ -46,81 +46,106 @@ const enhancerStart = text.indexOf('  const enhanceResultButtons = () => {');
 const enhancerEnd = text.indexOf('\n\n  const productsBody', enhancerStart);
 if (enhancerStart < 0 || enhancerEnd < 0) throw new Error('Result enhancer block not found');
 
-const enhancer = `  const enhanceResultButtons = () => {
-    if (!window.matchMedia('(max-width:820px)').matches) return;
+const enhancer = `  const mobileMedia = window.matchMedia('(max-width:820px)');
 
+  const restoreDesktopRow = (row) => {
+    const desktopCells = row.__kfDesktopCells;
+    if (!Array.isArray(desktopCells) || desktopCells.length < 6) return;
+
+    const actionCell = desktopCells[5];
+    const editButton = row.querySelector('[data-edit]');
+    const printButton = row.querySelector('[data-print]');
+    if (editButton) actionCell.appendChild(editButton);
+    if (printButton) actionCell.appendChild(printButton);
+
+    row.replaceChildren(...desktopCells);
+    row.classList.remove('mobile-product-row');
+    delete row.dataset.mobileCardReady;
+  };
+
+  const buildMobileRow = (row) => {
+    if (row.dataset.mobileCardReady === 'true') return;
+
+    const cells = Array.from(row.querySelectorAll(':scope > td'));
+    if (cells.length < 6 || cells[0]?.hasAttribute('colspan')) return;
+    row.__kfDesktopCells = cells;
+
+    const barcode = (cells[0]?.textContent || '').replace(/\\s+/g, '');
+    const name = cells[1]?.querySelector('strong')?.textContent?.trim() || cells[1]?.textContent?.trim() || '';
+    const languageSpans = Array.from(cells[2]?.querySelectorAll('.muted') || []);
+    const vi = languageSpans[0]?.textContent?.trim() || '';
+    const id = languageSpans[1]?.textContent?.trim() || '';
+    const price = cells[3]?.textContent?.trim() || '';
+    const spec = cells[4]?.textContent?.trim() || '';
+    const editButton = cells[5]?.querySelector('[data-edit]');
+    const printButton = cells[5]?.querySelector('[data-print]');
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'mobile-product-name';
+    nameEl.textContent = name;
+
+    const priceEl = document.createElement('div');
+    priceEl.className = 'mobile-product-price';
+    priceEl.textContent = price;
+
+    const metaEl = document.createElement('div');
+    metaEl.className = 'mobile-product-meta';
+
+    const barcodeEl = document.createElement('div');
+    barcodeEl.className = 'mobile-product-barcode';
+    barcodeEl.textContent = barcode;
+    metaEl.appendChild(barcodeEl);
+
+    if (spec && spec !== '-') {
+      const specEl = document.createElement('div');
+      specEl.className = 'mobile-product-spec';
+      specEl.textContent = spec;
+      metaEl.appendChild(specEl);
+    }
+
+    const langsEl = document.createElement('div');
+    langsEl.className = 'mobile-product-langs';
+    [vi, id].forEach((value) => {
+      if (!value || value === 'VI -' || value === 'ID -') return;
+      const langEl = document.createElement('div');
+      langEl.className = 'mobile-product-lang';
+      langEl.textContent = value;
+      langsEl.appendChild(langEl);
+    });
+
+    const actionsEl = document.createElement('div');
+    actionsEl.className = 'mobile-product-actions';
+    if (editButton) actionsEl.appendChild(editButton);
+    if (printButton) actionsEl.appendChild(printButton);
+
+    const parts = [nameEl, priceEl, metaEl];
+    if (langsEl.childElementCount) parts.push(langsEl);
+    if (actionsEl.childElementCount) parts.push(actionsEl);
+
+    row.replaceChildren(...parts);
+    row.classList.add('mobile-product-row');
+    row.dataset.mobileCardReady = 'true';
+  };
+
+  const enhanceResultButtons = () => {
     document.querySelectorAll('.apple-result-card tr').forEach((row) => {
-      if (row.dataset.mobileCardReady === 'true') return;
-
-      const cells = Array.from(row.querySelectorAll(':scope > td'));
-      if (cells.length < 6 || cells[0]?.hasAttribute('colspan')) return;
-
-      const barcode = (cells[0]?.textContent || '').replace(/\\s+/g, '');
-      const name = cells[1]?.querySelector('strong')?.textContent?.trim() || cells[1]?.textContent?.trim() || '';
-      const languageSpans = Array.from(cells[2]?.querySelectorAll('.muted') || []);
-      const vi = languageSpans[0]?.textContent?.trim() || '';
-      const id = languageSpans[1]?.textContent?.trim() || '';
-      const price = cells[3]?.textContent?.trim() || '';
-      const spec = cells[4]?.textContent?.trim() || '';
-      const editButton = cells[5]?.querySelector('[data-edit]');
-      const printButton = cells[5]?.querySelector('[data-print]');
-
-      const nameEl = document.createElement('div');
-      nameEl.className = 'mobile-product-name';
-      nameEl.textContent = name;
-
-      const priceEl = document.createElement('div');
-      priceEl.className = 'mobile-product-price';
-      priceEl.textContent = price;
-
-      const metaEl = document.createElement('div');
-      metaEl.className = 'mobile-product-meta';
-
-      const barcodeEl = document.createElement('div');
-      barcodeEl.className = 'mobile-product-barcode';
-      barcodeEl.textContent = barcode;
-      metaEl.appendChild(barcodeEl);
-
-      if (spec && spec !== '-') {
-        const specEl = document.createElement('div');
-        specEl.className = 'mobile-product-spec';
-        specEl.textContent = spec;
-        metaEl.appendChild(specEl);
-      }
-
-      const langsEl = document.createElement('div');
-      langsEl.className = 'mobile-product-langs';
-      [vi, id].forEach((value) => {
-        if (!value || value === 'VI -' || value === 'ID -') return;
-        const langEl = document.createElement('div');
-        langEl.className = 'mobile-product-lang';
-        langEl.textContent = value;
-        langsEl.appendChild(langEl);
-      });
-
-      const actionsEl = document.createElement('div');
-      actionsEl.className = 'mobile-product-actions';
-      if (editButton) actionsEl.appendChild(editButton);
-      if (printButton) actionsEl.appendChild(printButton);
-
-      const parts = [nameEl, priceEl, metaEl];
-      if (langsEl.childElementCount) parts.push(langsEl);
-      if (actionsEl.childElementCount) parts.push(actionsEl);
-
-      row.replaceChildren(...parts);
-      row.classList.add('mobile-product-row');
-      row.dataset.mobileCardReady = 'true';
+      if (mobileMedia.matches) buildMobileRow(row);
+      else if (row.dataset.mobileCardReady === 'true') restoreDesktopRow(row);
     });
   };`;
 
 text = text.slice(0, enhancerStart) + enhancer + text.slice(enhancerEnd);
+
+const observerAnchor = `    enhanceResultButtons();\n  }`;
+if (!text.includes(observerAnchor)) throw new Error('Result enhancer invocation not found');
+text = text.replace(observerAnchor, `    enhanceResultButtons();\n    if (typeof mobileMedia.addEventListener === 'function') {\n      mobileMedia.addEventListener('change', enhanceResultButtons);\n    } else if (typeof mobileMedia.addListener === 'function') {\n      mobileMedia.addListener(enhanceResultButtons);\n    }\n  }`);
 
 fs.writeFileSync(file, text);
 
 const indexFile = 'index.html';
 if (!fs.existsSync(indexFile)) throw new Error('Missing index.html');
 let index = fs.readFileSync(indexFile, 'utf8');
-index = index.replace(/\/apple-ui-improve\.js\?v=improve-[0-9a-z]+/g, '/apple-ui-improve.js?v=improve-20260807f');
+index = index.replace(/\/apple-ui-improve\.js\?v=improve-[0-9a-z]+/g, '/apple-ui-improve.js?v=improve-20260807g');
 fs.writeFileSync(indexFile, index);
 
 console.log('mobile result card patch applied');
