@@ -10,15 +10,15 @@ if (!text.includes(headMarker)) {
   const pwaHead = `
   ${headMarker}
   <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
-  <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
-  <link rel="shortcut icon" href="/icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/app-icon-192-v2.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="/icons/app-icon-512-v2.png" />
+  <link rel="shortcut icon" href="/icons/app-icon-192-v2.png" />
   <meta name="theme-color" content="#ffffff" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="來來庫存" />
-  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-v2.png" />
 `;
   text = text.replace('</head>', `${pwaHead}</head>`);
 }
