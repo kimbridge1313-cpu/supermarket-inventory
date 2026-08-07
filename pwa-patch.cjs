@@ -27,7 +27,7 @@ const scriptMarker = '<!-- KF_PWA_REGISTER -->';
 if (!text.includes(scriptMarker)) {
   const registration = `
   ${scriptMarker}
-  <script src="/pwa-ui-fix.js?v=20260807a" defer></script>
+  <script src="/pwa-ui-fix.js?v=20260807b" defer></script>
   <script src="/pwa-register.js?v=20260807b" defer></script>
 `;
   text = text.replace('</body>', `${registration}</body>`);
