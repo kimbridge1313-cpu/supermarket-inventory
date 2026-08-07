@@ -12,14 +12,16 @@ function card(product) {
   assert.equal(result.content.nameZh, '布丁*12入');
   assert.equal(result.content.spec, '100g');
   assert.match(result.markup, /<BC128_C>4710123456789<\/BC128_C>/);
-  assert.equal(result.markup.startsWith('<C><BC128_C>4710123456789</BC128_C></C><BR><C>4710123456789</C>'), true);
+  assert.equal(result.markup.startsWith('<C><BC128_C>4710123456789</BC128_C></C><BR>'), true);
+  assert.equal(result.markup.includes('</BC128_C></C><BR><C>4710123456789</C>'), false);
+  assert.equal(result.markup.endsWith('<BR><BR><BR><BR><CUT>'), true);
   assert.equal(countCutTags(result.markup), 1);
 }
 
 for (const name of ['統一肉燥麵(包裝)*5入', '義美蘇打餅乾(紫菜)', '統一麥香奶茶']) {
   const result = card({ labelName: name, price: 55, barcode: '4710123456789' });
   assert.equal(result.content.nameZh, name);
-  assert.equal(result.markup.includes(`<BOLD>${name}</BOLD>`), true);
+  assert.equal(result.markup.includes(`<L><BOLD>${name}</BOLD></L>`), true);
   assert.equal(result.markup.includes(`<B>${name}</B>`), false);
 }
 
