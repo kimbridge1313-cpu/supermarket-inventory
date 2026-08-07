@@ -11,6 +11,10 @@ function patchAppleImprove() {
     throw new Error('Competing Apple UI print-button label writer is still present');
   }
 
+  const emptyEnhancer = `  const enhanceResultButtons = () => {\n  };`;
+  const specEnhancer = `  const enhanceResultButtons = () => {\n    document.querySelectorAll('.apple-result-card tr').forEach((row) => {\n      const specCell = row.querySelector('td:nth-child(5)');\n      if (specCell) {\n        const value = specCell.textContent?.trim() || '';\n        specCell.classList.toggle('apple-empty-spec', !value || value === '-');\n      }\n    });\n  };`;
+  if (text.includes(emptyEnhancer)) text = text.replace(emptyEnhancer, specEnhancer);
+
   fs.writeFileSync(file, text);
 }
 
@@ -34,7 +38,7 @@ function bumpAppleVersion() {
   const file = 'index.html';
   if (!fs.existsSync(file)) throw new Error('Missing index.html');
   let text = fs.readFileSync(file, 'utf8');
-  text = text.replace(/\/apple-ui-improve\.js\?v=improve-[0-9a-z]+/g, '/apple-ui-improve.js?v=improve-20260807c');
+  text = text.replace(/\/apple-ui-improve\.js\?v=improve-[0-9a-z]+/g, '/apple-ui-improve.js?v=improve-20260807d');
   fs.writeFileSync(file, text);
 }
 
