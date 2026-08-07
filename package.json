@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "test:feie-price-card": "node scripts/test-feie-price-card.mjs",
-    "build": "node scripts/test-feie-price-card.mjs && node build-patch.cjs && node zero-read-patch.cjs && node product-save-fix-patch.cjs && node label-name-rules-patch.cjs && node apple-ui-patch.cjs && node improve-ui-patch.cjs && node mobile-result-card-patch.cjs && node button-stability-patch.cjs && node feie-price-card-patch.cjs && node product-action-flow-patch.cjs && node direct-print-toast-fix.cjs && node direct-print-toast-inline-fix.cjs && vite build",
+    "build": "node scripts/test-feie-price-card.mjs && node build-patch.cjs && node zero-read-patch.cjs && node product-save-fix-patch.cjs && node label-name-rules-patch.cjs && node apple-ui-patch.cjs && node improve-ui-patch.cjs && node mobile-result-card-patch.cjs && node button-stability-patch.cjs && node feie-price-card-patch.cjs && node product-action-flow-patch.cjs && node direct-print-toast-fix.cjs && node direct-print-toast-inline-fix.cjs && node pwa-patch.cjs && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
