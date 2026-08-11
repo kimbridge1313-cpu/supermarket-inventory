@@ -1,10 +1,14 @@
-const CACHE_NAME = 'supermarket-inventory-shell-v2';
+const CACHE_NAME = 'supermarket-inventory-shell-v3';
 const SHELL_URLS = [
   '/',
   '/manifest.webmanifest',
   '/icons/app-icon-192-v2.png',
   '/icons/app-icon-512-v2.png',
-  '/icons/apple-touch-icon-v2.png'
+  '/apple-touch-icon.png',
+  '/favicon.ico',
+  '/favicon-16x16.png',
+  '/favicon-32x32.png',
+  '/favicon-48x48.png'
 ];
 
 self.addEventListener('install', (event) => {
