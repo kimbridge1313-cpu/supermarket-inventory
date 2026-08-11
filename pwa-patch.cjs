@@ -10,15 +10,17 @@ if (!text.includes(headMarker)) {
   const pwaHead = `
   ${headMarker}
   <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="icon" type="image/png" sizes="192x192" href="/icons/app-icon-192-v2.png" />
-  <link rel="icon" type="image/png" sizes="512x512" href="/icons/app-icon-512-v2.png" />
-  <link rel="shortcut icon" href="/icons/app-icon-192-v2.png" />
+  <link rel="icon" href="/favicon.ico?v=20260811a" sizes="any" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png?v=20260811a" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png?v=20260811a" />
+  <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png?v=20260811a" />
+  <link rel="shortcut icon" href="/favicon.ico?v=20260811a" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=20260811a" />
   <meta name="theme-color" content="#ffffff" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="來來庫存" />
-  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-v2.png" />
 `;
   text = text.replace('</head>', `${pwaHead}</head>`);
 }
