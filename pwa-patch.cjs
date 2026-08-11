@@ -9,7 +9,7 @@ const headMarker = '<!-- KF_PWA_HEAD -->';
 if (!text.includes(headMarker)) {
   const pwaHead = `
   ${headMarker}
-  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="manifest" href="/manifest.webmanifest?v=20260811b" />
   <link rel="icon" href="/favicon.ico?v=20260811a" sizes="any" />
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png?v=20260811a" />
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png?v=20260811a" />
