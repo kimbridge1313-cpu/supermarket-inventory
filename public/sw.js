@@ -1,9 +1,11 @@
-const CACHE_NAME = 'supermarket-inventory-shell-v3';
+const CACHE_NAME = 'supermarket-inventory-shell-v4';
 const SHELL_URLS = [
   '/',
   '/manifest.webmanifest',
-  '/icons/app-icon-192-v2.png',
-  '/icons/app-icon-512-v2.png',
+  '/icons/app-icon-192-v3.png',
+  '/icons/app-icon-512-v3.png',
+  '/icons/app-icon-maskable-192-v3.png',
+  '/icons/app-icon-maskable-512-v3.png',
   '/apple-touch-icon.png',
   '/favicon.ico',
   '/favicon-16x16.png',
